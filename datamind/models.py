@@ -16,3 +16,10 @@ class Answer:
     query_id: str = ""
     explanation: str = ""
     warnings: list[str] = field(default_factory=list)
+    suggestions: list[str] = field(default_factory=list)  # follow-up sawal jo user click karke pooch sakta hai
+    trace: list[dict] = field(default_factory=list)       # is sawal ke dauran bani trace lines: {time, ms, tag, message}
+    steps: list["Answer"] = field(default_factory=list)   # multipart sawal me har hissa ka apna jawab (alag dataset, alag SQL)
+
+    def __post_init__(self):
+        # saved chat se wapas aate waqt steps dict hote hain; unhe Answer bana do
+        self.steps = [s if isinstance(s, Answer) else Answer(**s) for s in self.steps]

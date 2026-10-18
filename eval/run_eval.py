@@ -33,6 +33,25 @@ def fill(sql: str) -> str:
     return sql
 
 
+def judge_split(case: dict, final, conn) -> tuple[bool, str, list]:
+    """Multipart: har truth ke liye koi ek part (kisi bhi order me) ke rows match hone chahiye, aur parts ki ginti wahi honi chahiye."""
+    parts = case["parts"]
+    if final.status != "answered" or not final.steps:
+        return False, f"status {final.status} without parts: {final.message[:120]}", []
+    if len(final.steps) != len(parts):
+        return False, f"expected {len(parts)} parts, got {len(final.steps)}", []
+    unused, truths = list(final.steps), []
+    for i, part in enumerate(parts, 1):
+        rows = run_query(conn, fill(part["truth"])).rows
+        truths += rows
+        hit = next((s for s in unused if s.status in ("answered", "empty") and match(rows, s.rows, part.get("compare", "rows"), False)[0]), None)
+        if hit is None:
+            got = [(s.question, s.status, [list(map(str, r)) for r in s.rows[:2]]) for s in unused]
+            return False, f"no part matched truth {i} ({[list(map(str, r)) for r in rows[:2]]}); parts: {got}", truths
+        unused.remove(hit)
+    return True, "", truths
+
+
 def judge(case: dict, final, conn) -> tuple[bool, str, list]:
     """(passed, reason, truth_rows) lautata hai."""
     expect = case.get("expect", "query")
@@ -43,6 +62,8 @@ def judge(case: dict, final, conn) -> tuple[bool, str, list]:
     if expect == "ambiguous":
         ok = final.status == "clarify" or (final.status == "answered" and bool(final.assumptions))
         return ok, "" if ok else f"status {final.status} without stated assumptions", []
+    if expect == "split":
+        return judge_split(case, final, conn)
     if final.status not in ("answered", "empty"):
         return False, f"status {final.status}: {final.message}", []
     truth_rows = run_query(conn, fill(case["truth"])).rows
@@ -117,6 +138,9 @@ def main() -> int:
                 if "truth" in c:
                     rows = run_query(conn, fill(c["truth"])).rows
                     print(f"{c['id']}  {' / '.join(c.get('turns') or [c['question']])}\n    -> {[list(map(str, r)) for r in rows[:6]]}")
+                for n, part in enumerate(c.get("parts") or [], 1):
+                    rows = run_query(conn, fill(part["truth"])).rows
+                    print(f"{c['id']}  part {n} of: {c['question']}\n    -> {[list(map(str, r)) for r in rows[:6]]}")
             return 0
         agent = Agent(conn, load_config())
         results = []

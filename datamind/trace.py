@@ -4,6 +4,7 @@ DM_TRACE se on/off hota hai (run.bat isse on karta hai; DM_TRACE=0 karo toh chup
 window me turant dikhti hain, aur logs/datamind.log me bhi copy hoti hain. Yahan kuch bhi behaviour nahi badalta; bas batata hai ki
 code ne asal me kya kiya: sizes, row counts, status codes, timings, Snowflake query IDs. Secrets (keys, tokens, passwords) kabhi print nahi hote.
 """
+import contextvars
 import logging
 import os
 import re
@@ -15,10 +16,41 @@ from datetime import datetime
 
 _TRUE = {"1", "true", "yes", "on"}
 _lock = threading.Lock()
+_collector: contextvars.ContextVar = contextvars.ContextVar("dm_trace_collector", default=None)
+_capture_wanted = False
 
 
 def on() -> bool:
     return os.getenv("DM_TRACE", "").strip().lower() in _TRUE
+
+
+def enable_capture() -> None:
+    """UI ke liye: network hooks tab bhi lagao jab terminal trace (DM_TRACE) band ho, taaki har jawab ka Trace tab poora bhare."""
+    global _capture_wanted
+    _capture_wanted = True
+
+
+def wanted() -> bool:
+    return on() or _capture_wanted
+
+
+class _Capture:
+    def __init__(self):
+        self.lines: list[dict] = []
+        self.began = time.perf_counter()
+
+
+@contextmanager
+def capture():
+    """Is block me jo bhi trace lines bane unhe ek list me jama karta hai: {"time", "ms" (shuru se), "tag", "message"}.
+    Terminal trace (DM_TRACE) se alag kaam karta hai aur ContextVar use karta hai, toh alag-alag users/threads ki lines mix nahi hoti.
+    Yahi list jawab ke saath save hoti hai aur UI ke Trace tab me dikhti hai."""
+    cap = _Capture()
+    token = _collector.set(cap)
+    try:
+        yield cap.lines
+    finally:
+        _collector.reset(token)
 
 
 def short(text, limit: int = 160) -> str:
@@ -28,11 +60,16 @@ def short(text, limit: int = 160) -> str:
 
 
 def emit(tag: str, message: str) -> None:
+    cap = _collector.get()
+    if cap is None and not on():
+        return
+    stamp = f"{datetime.now():%H:%M:%S.%f}"[:-3]
+    if cap is not None:
+        cap.lines.append({"time": stamp, "ms": round((time.perf_counter() - cap.began) * 1000), "tag": tag, "message": str(message)})
     if not on():
         return
-    line = f"{datetime.now():%H:%M:%S.%f}"[:-3] + f"  {tag:<9} {message}"
     with _lock:
-        print(line, file=sys.stderr, flush=True)
+        print(f"{stamp}  {tag:<9} {message}", file=sys.stderr, flush=True)
     try:
         from .logs import get_logger
         get_logger().info("TRACE %s %s", tag, message)
@@ -88,9 +125,9 @@ _net_installed = False
 
 
 def install_network_trace() -> None:
-    """Snowflake connector ke log ko hook karta hai taaki uski har request report ho. Idempotent hai; DM_TRACE on na ho toh kuch nahi karta."""
+    """Snowflake connector ke log ko hook karta hai taaki uski har request report ho. Idempotent hai; na DM_TRACE on ho na UI capture, toh kuch nahi karta."""
     global _net_installed
-    if _net_installed or not on():
+    if _net_installed or not wanted():
         return
     lg = logging.getLogger("snowflake.connector")
     lg.setLevel(logging.DEBUG)
@@ -114,7 +151,7 @@ def httpx_hooks(label: str) -> dict:
         emit("NET", f"{response.request.method} {response.request.url.host}{response.request.url.path} -> HTTP {response.status_code}"
                     f" ({response.headers.get('content-length', 'streamed')} bytes){took}")
 
-    return {"request": [on_request], "response": [on_response]} if on() else {}
+    return {"request": [on_request], "response": [on_response]} if wanted() else {}
 
 
 # ---------------------------------------------------------------- environment report (run.bat step 4)

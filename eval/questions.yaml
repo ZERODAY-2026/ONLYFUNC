@@ -436,3 +436,27 @@ cases:
   - {id: g12, category: ambiguity, question: "How many customers are there?", expect: ambiguous}
   - {id: g13, category: ambiguity, question: "What is the total revenue?", expect: ambiguous}
   - {id: g14, category: ambiguity, question: "Which year had the highest revenue?", expect: ambiguous}
+
+  # ---------------------------------------------------------------- multipart: ek sawal, alag datasets ke alag facts (har hissa apna dataset, koi merged number nahi)
+  # expect: split  -> answer.steps me utne hi hisse ho, aur har truth kisi ek hisse ke rows se match kare
+  - id: x01
+    category: multipart
+    expect: split
+    question: "How many students are in the student performance data, and what was France's population in 2020?"
+    parts:
+      - {compare: scalar, truth: "SELECT COUNT(*) FROM {UCI}.STUDENT_PERFORMANCE"}
+      - {compare: scalar, truth: "SELECT POPULATION FROM {OWID}.POPULATION WHERE ENTITY = 'France' AND YEAR = 2020"}
+  - id: x02
+    category: multipart
+    expect: split
+    question: "What is the average alcohol content of red wine, and how many bank clients subscribed to a term deposit?"
+    parts:
+      - {compare: scalar, truth: "SELECT AVG(ALCOHOL) FROM {WINE} WHERE COLOR = 'red'"}
+      - {compare: scalar, truth: "SELECT COUNT(*) FROM {UCI}.BANK_MARKETING WHERE SUBSCRIBED = 'yes'"}
+  - id: x03
+    category: multipart
+    expect: split
+    question: "What was the life expectancy of Japan in 2020, and how many TPC-H orders were placed in 1996?"
+    parts:
+      - {compare: scalar, truth: "SELECT LIFE_EXPECTANCY FROM {OWID}.LIFE_EXPECTANCY WHERE ENTITY = 'Japan' AND YEAR = 2020"}
+      - {compare: scalar, truth: "SELECT COUNT(*) FROM {TPCH}.ORDERS WHERE O_ORDERDATE >= '1996-01-01' AND O_ORDERDATE < '1997-01-01'"}

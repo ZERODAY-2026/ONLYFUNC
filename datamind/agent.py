@@ -1,5 +1,6 @@
 """Workflow: question -> Gemma SQL likhta hai -> validator -> Snowflake chalata hai -> Gemma wapas aayi rows ko explain karta hai."""
 import json
+import os
 import time
 
 import snowflake.connector.errors as sf_errors
@@ -11,33 +12,157 @@ from .grounding import evidence_fallback, numbers_grounded
 from .llm import LLMError
 from .logs import get_logger
 from .models import Answer
-from .prompts import EXPLAIN_SYSTEM, SQL_SYSTEM
+from .prompts import EXPLAIN_SYSTEM, SPLIT_RULE, SQL_SYSTEM, SUGGEST_SYSTEM
 from .snowflake_client import QueryResult, run_query
 from .validator import ValidationError, validate
 
 __all__ = ["Agent", "Answer"]
 
 EXPLAIN_ROWS = 50  # explanation ke liye model ko itni rows dikhai jaati hain
+SUGGEST_ROWS = 10  # follow-up suggestions ke liye itni rows kaafi hain
+MAX_SUGGESTIONS = 3
+MIN_SUGGESTION_CHARS = 8
+MAX_SUGGESTION_CHARS = 140
+MAX_PARTS = 3  # multipart sawal me zyada se zyada itne hisse
 MAX_QUESTION_CHARS = 1000
 log = get_logger()
 
 
+def multipart_enabled() -> bool:
+    """DM_MULTIPART=0 se poora multipart feature (prompt ka extra rule bhi) band ho jaata hai."""
+    return os.getenv("DM_MULTIPART", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 class Agent:
-    def __init__(self, conn, cfg: Config):
-        self.conn, self.cfg = conn, cfg
+    def __init__(self, conn, cfg: Config, allow_split: bool = True):
+        self.conn, self.full_cfg = conn, cfg
+        self.allow_split = allow_split           # child agent kabhi split nahi karta: recursion nahi, sirf ek level
+        self._children: dict[str, Agent] = {}    # dataset -> uska single-dataset agent (schema ek baar padh kar cache)
+        self.cfg = cfg                      # abhi active datasets; set_scope() isko chhota kar sakta hai
+        self.scope: list[str] | None = None  # None = saare datasets
         self.system = self._build_system()
         self.history: list[tuple[str, str]] = []  # follow-up questions ke liye (question, sql)
 
     def _build_system(self) -> str:
         examples = describe_examples(self.cfg)
         schema = describe_schema(self.conn, self.cfg)  # `tables: auto` wale datasets ko bhi dobara discover karta hai
+        if self.scope:
+            off = [d.name for d in self.full_cfg.datasets if d.name not in self.scope]
+            schema += (f"\nDatasets enabled for this conversation: {', '.join(self.scope)}. Other datasets exist ({', '.join(off)}) but are switched off. "
+                       "If the question needs a switched-off dataset, reply with action 'unsupported' and name the dataset the user should switch on.")
         system = SQL_SYSTEM.format(schema=schema, examples=f"\nExamples:\n{examples}" if examples else "")
+        if self._split_on():
+            system += SPLIT_RULE
         trace.emit("SCHEMA", f"prompt built from live Snowflake columns: schema text {len(schema)} chars, few-shot examples {len(examples)} chars, "
                             f"system prompt {len(system)} chars, {len(self.cfg.datasets)} datasets, {len(self.cfg.allowed_tables())} allowed tables")
         return system
 
+    def set_scope(self, names) -> None:
+        """Sirf chune hue datasets par sawal poochne do: prompt me bhi wahi tables jaati hain aur validator bhi sirf unhi ko allow karta hai."""
+        wanted = list(dict.fromkeys(names))
+        known = [d.name for d in self.full_cfg.datasets]
+        unknown = [n for n in wanted if n not in known]
+        if not wanted or unknown:
+            raise ValueError("Choose at least one dataset" if not wanted else f"Unknown dataset(s): {', '.join(unknown)}")
+        self.scope = None if set(wanted) == set(known) else [n for n in known if n in wanted]
+        self.cfg = self.full_cfg if self.scope is None else self.full_cfg.subset(self.scope)
+        trace.emit("SCOPE", f"datasets enabled: {', '.join(self.scope or known)}")
+        self._children.clear()
+        self.system = self._build_system()
+
+    def _split_on(self) -> bool:
+        """Split tabhi jab feature on ho, yeh parent agent ho, aur kam se kam 2 datasets chale hue hon (ek dataset me split ka matlab nahi)."""
+        return self.allow_split and multipart_enabled() and sum(1 for d in self.cfg.datasets if d.tables) >= 2
+
+    def _child(self, dataset: str) -> "Agent":
+        if dataset not in self._children:
+            self._children[dataset] = Agent(self.conn, self.cfg.subset([dataset]), allow_split=False)
+        return self._children[dataset]
+
+    def _split(self, question: str, plan: dict) -> Answer:
+        """Sawal ko alag datasets ke hisson me baant kar har hissa ek single-dataset child agent se poochta hai: wahi validator, wahi read-only
+        role, wahi repair aur grounding. Hisson ke jawab sirf jode jaate hain (har ek ka apna verified explanation); koi merged number nahi banta."""
+        known = {d.name for d in self.cfg.datasets if d.tables}
+        parts, seen = [], set()
+        for item in plan.get("parts") if isinstance(plan.get("parts"), list) else []:
+            q = " ".join(str(item.get("question", "")).split()) if isinstance(item, dict) else ""
+            ds = item.get("dataset") if isinstance(item, dict) else None
+            if q and ds in known and q.casefold() not in seen:   # pehle duplicate/ghalat hatao, phir limit lagao
+                seen.add(q.casefold())
+                parts.append((q, ds))
+                if len(parts) == MAX_PARTS:
+                    break
+        trace.emit("SPLIT", f"Gemma split the question into {len(parts)} part(s): " + "; ".join(f"[{ds}] {trace.short(q, 70)}" for q, ds in parts))
+        if len({ds for _, ds in parts}) == 1:   # sab hisse ek hi dataset ke: asal me split nahi, seedha us dataset se poochho
+            return self._child(parts[0][1])._ask(question)
+        if len(parts) < 2:
+            return Answer("unsupported", question, message=plan.get("message") or "This question needs more than one dataset, but it could not be split into separate parts I can answer.")
+        steps: list[Answer] = []
+        for number, (q, ds) in enumerate(parts, 1):
+            child = self._child(ds)
+            child.history.clear()
+            trace.emit("SPLIT", f"part {number}/{len(parts)} -> dataset {ds}: {trace.short(q, 100)}")
+            try:
+                step = child._ask(q)
+            except LLMError as e:
+                step = Answer("error", q, message=str(e))
+            step.trace = []
+            steps.append(step)
+            trace.emit("SPLIT", f"part {number}/{len(parts)} finished: status={step.status} query_id={step.query_id or '-'}")
+        good = [s for s in steps if s.status in {"answered", "empty"}]
+        text = []
+        for number, ((q, ds), step) in enumerate(zip(parts, steps), 1):
+            body = (step.explanation if step.status == "answered" else step.message if step.status == "empty"
+                    else f"This part could not be answered: {step.message or step.status}")
+            text.append(f"**Part {number} · {ds.replace('_', ' ')}**: {q}\n\n{body}")
+        if not good:
+            return Answer("error", question, message="None of the parts could be answered.\n\n" + "\n\n".join(text), steps=steps)
+        text.append("*These parts come from separate datasets with no declared link between them, so each is answered on its own and no combined figure is calculated.*")
+        self.history.extend((s.question, s.sql) for s in good if s.sql)
+        sql = "\n\n".join(f"-- Part {i}: {s.question}\n{s.sql}" for i, s in enumerate(good, 1) if s.sql)
+        executed = "\n\n".join(f"-- Part {i}: {s.question}\n{s.executed_sql}" for i, s in enumerate(good, 1) if s.executed_sql)
+        return Answer("answered", question, sql=sql, executed_sql=executed, explanation="\n\n".join(text), steps=steps,
+                      tables=list(dict.fromkeys(t for s in good for t in s.tables)),
+                      assumptions=[f"Part {i}: {a}" for i, s in enumerate(steps, 1) for a in s.assumptions],
+                      warnings=[f"Part {i}: {w}" for i, s in enumerate(steps, 1) for w in s.warnings],
+                      query_id=", ".join(s.query_id for s in good if s.query_id))
+
+    def suggest_followups(self, answer: Answer) -> list[str]:
+        """Is jawab ke context se (question, SQL, rows, pichhle sawal, chale hue datasets) 2-3 follow-up sawal suggest karta hai.
+        Sirf answered/empty jawab ke liye. Kabhi exception nahi uthata: suggestion na bane toh khaali list, jawab pe koi asar nahi.
+        Suggestion sirf text hai; click karne par woh normal pipeline (validator + Snowflake) se hi guzarta hai."""
+        if answer.status not in {"answered", "empty"} or answer.steps:  # multipart jawab ke liye abhi suggestions nahi
+            return []
+        earlier = [q for q, _ in self.history]
+        context = {
+            "last_question": answer.question, "executed_sql": trace.short(answer.executed_sql or answer.sql, 600),
+            "columns": answer.columns, "rows": [dict(zip(answer.columns, r)) for r in answer.rows[:SUGGEST_ROWS]],
+            "row_count": len(answer.rows), "tables": answer.tables, "assumptions": answer.assumptions,
+            "earlier_questions": earlier[-5:],
+        }
+        brief = "\n".join(f"- {d.name}: {d.description} (tables: {', '.join(d.tables)})" for d in self.cfg.datasets if d.tables)
+        try:
+            plan = llm.chat_json(SUGGEST_SYSTEM.format(datasets=brief), json.dumps(context, default=str))
+        except Exception:
+            log.warning("Could not get follow-up suggestions", exc_info=True)
+            trace.emit("SUGGEST", "Gemma could not suggest follow-ups; the answer is unaffected")
+            return []
+        seen = {q.casefold() for q in earlier} | {answer.question.casefold()}
+        out: list[str] = []
+        items = plan.get("suggestions")
+        for item in items if isinstance(items, list) else []:  # string ya None aaye toh character-by-character nahi chalna
+            text = " ".join(item.split()) if isinstance(item, str) else ""
+            if not MIN_SUGGESTION_CHARS <= len(text) <= MAX_SUGGESTION_CHARS or text.casefold() in seen or text.upper().startswith(("SELECT", "WITH ")):
+                continue
+            seen.add(text.casefold())
+            out.append(text)
+        out = out[:MAX_SUGGESTIONS]
+        trace.emit("SUGGEST", f"{len(out)} follow-up question(s) suggested from the answer, its rows and {len(earlier)} earlier question(s)")
+        return out
+
     def refresh_tables(self) -> None:
         """Live schema dobara padhta hai (nayi ya hataayi gayi tables) bina restart kiye; validator ki allowlist bhi saath me update ho jaati hai."""
+        self._children.clear()
         self.system = self._build_system()
 
     def _context(self, question: str, error: str = "", prev_sql: str = "") -> str:
@@ -73,6 +198,8 @@ class Agent:
                               f"assumptions={len(plan.get('assumptions') or [])}" + (f", message: {trace.short(plan.get('message'), 120)}" if plan.get('message') else ""))
             if action == "clarify":
                 return Answer("clarify", question, message=plan.get("message", "Could you clarify?"))
+            if action == "split" and self._split_on():
+                return self._split(question, plan)
             if action != "query":
                 return Answer("unsupported", question, message=plan.get("message", "This question cannot be answered from the available data."))
             sql = plan.get("sql", "")

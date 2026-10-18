@@ -113,6 +113,20 @@ Windows 10 Pro 22H2 (build 19045), Intel Core i5-11400H, 16 GB RAM, Python 3.12.
 
 In the app, each answer has a "How this was obtained / evidence" panel with the tables used, the stated assumptions, the executed SQL, the Snowflake query ID and the rows. You can look the query ID up in Snowsight under Monitoring, then Query History. The sidebar lists every dataset with its source and licence.
 
+**Questions that span datasets:** if one question asks for separate facts from different datasets (for example "the average alcohol of red wine, and how many bank clients subscribed to a term deposit"), DataMind splits it into parts, answers each part from its own dataset with the same validator, read-only role and grounding check, and shows them as Part 1, Part 2 and so on. Each part has its own SQL and Snowflake query ID in the Results and Query tabs. Parts are never merged: no combined figure is calculated, because the datasets have no declared link, and the answer says so. At most 3 parts are used, a part can't split again, and a part that fails doesn't hide the parts that worked. Set `DM_MULTIPART=0` in `.env` to turn the feature off.
+
+**Trace tab:** the last tab of each answer is a timestamped record of what the code did for that question, the same lines as the terminal's live trace: the question received, each Gemma call with its size and time, each network request and HTTP status, the validator's verdict, the SQL with its Snowflake query ID, the grounding check, and the follow-up suggestions. Each line has a clock time and the milliseconds since the question started, and the tab summarises the number of steps, Gemma calls and Snowflake statements. You can download it as a text file. It is recorded while the question runs, saved with the chat, and works even when the terminal trace is off. Keys, tokens and passwords are never recorded.
+
+**Data library, live:** each dataset in the sidebar's Data library lists the tables Snowflake actually has, with their column and row counts (read from the live schema), and the source picker shows how many of each dataset's tables were found. This is the same live schema DataMind reads to build the prompt, so you can see what Gemma is working from.
+
+**Cost & reliability:** the sidebar's Studio section has a Cost & reliability panel for the current conversation, built only from the traces the code recorded: questions, answered and error counts, median and slowest time per question, Gemma calls and time, Snowflake statements and time, retries, validator and Snowflake rejections, Gemma failures, the three slowest statements with their query IDs, and an estimate of warehouse credits (query time at the warehouse's rate, set with `DM_WAREHOUSE_CREDITS_PER_HOUR`, default 1 for an XSMALL). It is an estimate, not billing: Snowflake also bills idle time and a 60-second minimum each time the warehouse resumes, and the real figures live in `SNOWFLAKE.ACCOUNT_USAGE`, which needs admin rights. Set `DM_CREDIT_BUDGET` (in credits) to get a budget bar and a warning at 80%.
+
+**Visualisation tab:** next to Results, Query and Evidence, every answer with data has a Visualisation tab. It picks a chart from the shape of the returned rows and the wording of your question: a bar chart for labels and numbers, a line for change over time, a donut for shares of a few categories, a scatter for two numbers, a histogram for a spread of values, and plain number cards for a single row. You can switch the chart type, the grouping and the value column. Charts are drawn only from the rows Snowflake returned (nothing is re-queried, smoothed or estimated), and a chart that would show more than 30 bars says it is cut off. The Results tab is unchanged. Charts use Altair, which ships with Streamlit, so there is nothing extra to install.
+
+**Follow-up ideas:** under the latest answer, DataMind suggests three follow-up questions. Gemma writes them from that answer's question, SQL and rows, the earlier questions in the chat and the datasets that are switched on, so they refer to the real data ("these 5 countries", "1996"). Clicking one asks it like any other question, so it goes through the same validator and Snowflake. In our checks 9 of 9 suggestions were answerable, but a suggestion can occasionally need a query the validator won't allow, and you'll see a clear refusal. If Gemma can't produce suggestions, the answer is shown without them.
+
+**Choosing which sources to ask:** the sidebar's Data sources box lists every dataset, with the number of its tables found live in Snowflake (for example `TPCH 8/8`). Remove the ones you don't want and only the rest are used: Gemma only sees those tables, and the validator only allows them. If you ask about a switched-off dataset, DataMind says so and tells you which one to switch on. By default every source is selected, and the choice applies to the current browser session.
+
 ### The live trace
 `run.bat` prints a line for every connection, network call, SQL statement, model call and workflow step as it happens, with sizes and timings. It's there so you can see what the code is really doing. The same lines go to `logs/datamind.log`. Add `--quiet` to any command, or set `DM_TRACE=0`, to turn it off. It changes nothing else.
 
@@ -153,6 +167,8 @@ Copy `.env.example` to `.env`. It's gitignored, so your secrets stay on your mac
 | `DM_STATEMENT_TIMEOUT` | Seconds before Snowflake cancels a statement. Protects your credits |
 | `OLLAMA_HOST`, `OLLAMA_API_KEY`, `GEMMA_MODEL` | Where Gemma runs and which variant. Leave host and key empty for local Ollama |
 | `DM_TRACE` | `1` prints the live trace, `0` hides it |
+| `DM_WAREHOUSE_CREDITS_PER_HOUR`, `DM_CREDIT_BUDGET` | Warehouse rate (default 1) and an optional credit budget for the Cost & reliability estimate |
+| `DM_MULTIPART` | `0` turns off splitting a question across datasets |
 
 ### Adding a dataset
 You add a dataset in `datasets.yaml`, not in code. The minimum is a name, database, schema and the list of tables. The more you describe, the better the answers get:
@@ -219,14 +235,14 @@ Each module does one job. Gemma never computes data and Snowflake never interpre
 
 ## Tests and evaluation
 
-- **Unit tests:** `run.bat test` (or `python -m pytest tests -q`). 101 tests, all offline. They cover the validator, grounding, the workflow with fakes, response parsing, config, table discovery, the executor, the trace and the evaluation comparer.
+- **Unit tests:** `run.bat test` (or `python -m pytest tests -q`). 175 tests, all offline. They cover the validator, grounding, the workflow with fakes, response parsing, config, table discovery, the data-source selector, follow-up suggestions, multipart questions, the chart logic, the per-answer trace capture, the executor, the trace and the evaluation comparer.
 - **Routing smoke test:** `run.bat smoke`. 9 live cases checking that questions are answered, clarified or refused as they should be, including a prompt-injection attempt. Result: 9/9.
-- **Ground-truth evaluation:** `run.bat eval`. 80 questions across all six datasets. Each one has SQL we wrote by hand and ran directly in Snowflake, compared against the agent's rows. Results are saved in `eval/results/`, with a Snowflake query ID for every answer.
+- **Ground-truth evaluation:** `run.bat eval`. 83 questions across all six datasets, including 3 that span datasets. Each one has SQL we wrote by hand and ran directly in Snowflake, compared against the agent's rows. Results are saved in `eval/results/`, with a Snowflake query ID for every answer.
 
 The numbers, honestly:
 
 - The first run, on the original 47 TPC-H and wine questions with no tuning, scored **45/47 (96%)** (`eval/results/run1_before_fixes.md`). One failure was a real agent mistake (grouping parts by a name that isn't unique), which we fixed with a general prompt rule. The other was a truth case that asked for more than the question did, which we corrected.
-- We then added Our World in Data, Bank Marketing and Student Performance (19 cases, all passed the first time) and TPC-DS (11 cases). The latest full run scored **80/80** (`eval/results/latest.md`).
+- We then added Our World in Data, Bank Marketing and Student Performance (19 cases, all passed the first time) and TPC-DS (11 cases). Last, we added 3 questions that span datasets and re-ran everything after changing the prompt: the full run scored **83/83** (`eval/results/latest.md`), so the earlier 80 did not regress.
 - Treat the 96% first run as the fair estimate. The 100% comes after fixing what the set showed us, and the set is small. The questions are never used as prompt examples, but judges' unseen questions may well behave differently.
 
 What adding more datasets taught us:

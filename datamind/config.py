@@ -58,6 +58,12 @@ class Config:
     max_rows: int = 200
     allowed_functions: list[str] = field(default_factory=list)  # validator ke defaults ke alawa extra SQL functions
 
+    def subset(self, names) -> "Config":
+        """Sirf in naam wale datasets ke saath ek nayi Config; baaki settings same. UI ka data-source selector yahi use karta hai."""
+        keep = set(names)
+        return Config(datasets=[d for d in self.datasets if d.name in keep], max_rows=self.max_rows,
+                      allowed_functions=list(self.allowed_functions))
+
     def allowed_tables(self) -> set[Table]:
         return {d.qualified(t) for d in self.datasets for t in d.tables}
 

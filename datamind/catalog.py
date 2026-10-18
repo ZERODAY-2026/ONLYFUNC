@@ -73,6 +73,35 @@ def describe_examples(cfg: Config) -> str:
     return "\n".join(out)
 
 
+def dataset_status(conn, cfg: Config) -> dict[str, dict]:
+    """Har dataset ke liye Snowflake se live pooch kar batata hai ki uski kitni configured tables sach me dikhti hain, aur har table me
+    kitne columns aur (metadata se) kitni rows hain. Ek query har database par.
+    Return: {dataset: {"present": n, "total": m, "missing": [...], "tables": {TABLE: {"rows": int | None, "columns": int}}}}."""
+    seen: dict[str, dict[str, dict[str, tuple]]] = {}
+    for d in cfg.datasets:
+        db = d.database.upper()
+        if db not in seen:
+            res = run_query(conn, f"""
+                SELECT t.table_schema, t.table_name, t.row_count, COUNT(c.column_name)
+                FROM {d.database}.INFORMATION_SCHEMA.TABLES t
+                LEFT JOIN {d.database}.INFORMATION_SCHEMA.COLUMNS c
+                  ON c.table_schema = t.table_schema AND c.table_name = t.table_name
+                WHERE t.table_schema <> 'INFORMATION_SCHEMA'
+                GROUP BY t.table_schema, t.table_name, t.row_count""")
+            by_schema: dict[str, dict[str, tuple]] = {}
+            for schema, table, rows, columns in res.rows:
+                by_schema.setdefault(schema.upper(), {})[table.upper()] = (None if rows is None else int(rows), int(columns))
+            seen[db] = by_schema
+    out = {}
+    for d in cfg.datasets:
+        present = seen[d.database.upper()].get(d.schema.upper(), {})
+        missing = [t for t in d.tables if t.upper() not in present]
+        out[d.name] = {"present": len(d.tables) - len(missing), "total": len(d.tables), "missing": missing,
+                       "tables": {t.upper(): {"rows": present[t.upper()][0], "columns": present[t.upper()][1]}
+                                  for t in d.tables if t.upper() in present}}
+    return out
+
+
 def missing_tables(conn, cfg: Config) -> list[str]:
     """Configured tables jo current role ko nahi dikhti (ya toh abhi load nahi hui, ya grant nahi hai)."""
     missing = []

@@ -1,6 +1,7 @@
 # Pinned to the versions tested on Windows 10 (build 19045) with Python 3.12.10, 2026-10-18.
 snowflake-connector-python[pandas]==5.0.0
 streamlit==1.66.0
+altair==6.3.0
 ucimlrepo==0.0.7
 pandas==2.3.3
 python-dotenv==1.2.4
