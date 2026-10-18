@@ -1,25 +1,120 @@
 # DataMind: talk to your data
 
-Ask questions in plain language. **Gemma** (via Ollama) translates the question into SQL, a read-only validator checks it, **Snowflake** runs it on the real data, and Gemma explains only the rows that came back. Every answer shows the executed SQL, the rows and the Snowflake query ID.
+DataMind lets you ask a question about your data in plain English and get an answer you can check. Gemma (through Ollama) turns the question into SQL, a read-only validator checks that SQL, Snowflake runs it on the real tables, and Gemma explains only the rows that came back. Every answer comes with the SQL that actually ran, the result rows and the Snowflake query ID, so you never have to take the model's word for anything.
 
-Five datasets are configured: Snowflake's TPC-H sample, UCI Wine Quality, UCI Bank Marketing, UCI Student Performance and three Our World in Data indicators (see Datasets and licences).
+We built it for ZeroDay OSS Hacktoberfest 2026 (problem statement PS1). It's meant for people who know what they want to ask but don't write SQL: analysts, students, small teams, anyone handed a database and a deadline.
 
+**Our main contribution:** a small, readable data agent where the language model never touches the numbers. Snowflake computes every figure, a validator stands between the model and the database, and a grounding check rejects any explanation that mentions a number not found in the result rows.
+
+## Contents
+- [How it works](#how-it-works)
+- [Datasets](#datasets-and-licences)
+- [Getting started](#getting-started)
+- [Everyday use](#everyday-use)
+- [Configuration](#configuration)
+- [Using the Snowflake layer from your own code](#using-the-snowflake-layer-from-your-own-code)
+- [Project layout](#project-layout)
+- [Tests and evaluation](#tests-and-evaluation)
+- [Known limitations](#known-limitations)
+- [Troubleshooting](#troubleshooting)
+- [Privacy and security](#privacy-and-security)
+- [Contributing](#contributing)
+- [Credits and licence](#credits-and-licence)
+
+## How it works
+
+```mermaid
+flowchart LR
+    Q[Your question] --> G1[Gemma writes SQL]
+    G1 --> V{Validator}
+    V -- rejected --> R[Refusal or clarifying question]
+    V -- read-only, allowed tables --> S[(Snowflake runs it)]
+    S --> Rows[Result rows + query ID]
+    Rows --> G2[Gemma explains the rows]
+    G2 --> C{Grounding check}
+    C -- numbers match the rows --> A[Answer + SQL + rows + query ID]
+    C -- unsupported numbers --> F[Exact values shown instead]
 ```
-question -> Gemma (SQL) -> validator (SELECT only, allowlisted tables, LIMIT) -> Snowflake -> rows -> Gemma (explanation) -> UI
+
+A few rules hold the design together:
+
+- **Gemma translates and explains. It never computes.** Every number in an answer comes from a query Snowflake ran when you asked.
+- **The validator is the gate.** It parses the SQL with sqlglot and allows one read-only statement, only on tables listed in `datasets.yaml`, using approved join keys and known functions, and it adds a `LIMIT` when one is missing. The app also logs in with a read-only Snowflake role, so a slip in the validator still can't write anything.
+- **The prompt is built from the live schema.** Column names and types come from Snowflake's `INFORMATION_SCHEMA` at start-up. The only hand-written knowledge is what's in `datasets.yaml`: what columns mean, which joins are allowed, how metrics like revenue are defined.
+- **Empty results bypass the model.** If a query returns nothing, you're told so plainly. Nothing gets invented.
+- **Unclear questions get a question back.** "Show me top sales" asks what you mean by top and by what grouping, or answers while stating its assumption.
+
+## Datasets and licences
+
+Each source lives in its own Snowflake database:
+
+| Snowflake database | Dataset | Tables | Source and licence |
+|---|---|---|---|
+| `SNOWFLAKE_SAMPLE_DATA` (`TPCH_SF1`) | `tpch` | 8 TPC-H tables | Snowflake sample data, read in place and not copied here. No open licence stated. |
+| `SNOWFLAKE_SAMPLE_DATA` (`TPCDS_SF10TCL`) | `tpcds` | 12 TPC-DS tables (`STORE_SALES` alone has 28.8 billion rows) | Snowflake sample data, read in place. No open licence stated. |
+| `UCI` (`PUBLIC`) | `wine_quality` | `WINE_QUALITY` (6,497 rows) | UCI Wine Quality (id 186), CC BY 4.0. |
+| `UCI` (`PUBLIC`) | `bank_marketing` | `BANK_MARKETING` (45,211 rows) | UCI Bank Marketing (id 222), CC BY 4.0. |
+| `UCI` (`PUBLIC`) | `student_performance` | `STUDENT_PERFORMANCE` (649 rows) | UCI Student Performance (id 320), CC BY 4.0. |
+| `OWID` (`PUBLIC`) | `owid` | `LIFE_EXPECTANCY`, `GDP_PER_CAPITA`, `POPULATION` | Our World in Data (life expectancy, GDP per capita, population with UN projections). CC BY 4.0 for the processed data. Underlying sources: Riley (2005), Zijdeman et al. (2015), HMD (2025), UN WPP (2024); Eurostat, OECD, IMF and World Bank (2026). Please credit Our World in Data and the original sources. |
+
+`setup.sql` creates the `UCI` and `OWID` databases and the roles. `load_data.py` downloads the UCI and Our World in Data files straight from their sources into your own Snowflake account. No dataset files are stored in this repository.
+
+A note on TPC-DS: its tables are huge, so a TPC-DS question can take anywhere from a few seconds to a few minutes on an XSMALL warehouse and costs more trial credit than the other datasets. The catalogue tells Gemma to filter by year first, and `.env.example` sets the statement timeout to 300 seconds (the code falls back to 60 if you leave it out).
+
+## Getting started
+
+### What you need
+- **Python 3.10 or newer.** We tested on 3.12.10.
+- **A Snowflake account.** A free trial (signup.snowflake.com) is enough. It needs only an email address and lasts 30 days.
+- **Access to Gemma**, one of:
+  - an Ollama API key (https://ollama.com/settings/keys) to use `gemma4:31b` on Ollama's servers. This is what we tested with.
+  - Ollama installed locally with `ollama signin`, then `GEMMA_MODEL=gemma4:cloud`.
+  - Ollama fully local with a smaller model, for example `ollama pull gemma3n:e4b` (about 9.8 GB) or `gemma3n:e2b` (about 7.8 GB). Smaller models are slower on a laptop and we haven't measured their accuracy on our evaluation set.
+
+### Windows (quickest)
+1. In a Snowsight worksheet, run `setup.sql` as ACCOUNTADMIN ("Run all"). It creates the warehouse, the two source databases, a read-only role (`DM_READER`) and a loader role (`DM_LOADER`).
+2. Run `run.bat keygen`. It creates a key pair, writes the key path into `.env` and prints one block of SQL. Paste that SQL into Snowsight and run it as ACCOUNTADMIN. It creates a service user called `DM_APP` that logs in with the key.
+3. Open `.env` and set `SNOWFLAKE_ACCOUNT` (the part of your Snowsight URL after the region, for example `ab12345.ap-southeast-7.aws`) and `SNOWFLAKE_USER=DM_APP`. Add your `OLLAMA_API_KEY`, or follow the local options in `.env.example`.
+4. Run `run.bat`. It creates `.venv`, installs the pinned packages, loads any dataset that's missing, checks everything and opens the app in your browser.
+
+### macOS and Linux
+`run.bat` is Windows-only, but every step it takes is a plain Python command:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env              # then fill it in, see the Windows steps above
+python -m datamind.keys           # creates the key pair and prints the SQL to register it
+python -m datamind.preflight      # exit code 0 = ready, 2 = datasets not loaded yet, 1 = something to fix
+python load_data.py               # loads the UCI and Our World in Data tables
+python -m streamlit run app.py
 ```
 
-## Quick start (Windows)
-1. **Snowflake:** create a trial account (signup.snowflake.com). In Snowsight, run `setup.sql` as ACCOUNTADMIN (Run all).
-2. **Credentials:** `run.bat keygen` creates a key pair and prints one SQL block to run in Snowsight; it also sets the key path in `.env`. Set `SNOWFLAKE_ACCOUNT` and `SNOWFLAKE_USER=DM_APP` in `.env`.
-3. **Gemma:** put an Ollama API key in `.env` as `OLLAMA_API_KEY` (https://ollama.com/settings/keys), or run Ollama locally (see `.env.example`).
-4. **Run:** `run.bat`. It creates `.venv`, installs packages, loads missing datasets, checks everything and opens the app.
+We developed and tested on Windows. The Python steps above should behave the same elsewhere, but we haven't run them on macOS or Linux ourselves.
 
-Every command prints a **live trace** in the same window (see Live trace below); add `--quiet` to hide it.
+### Tested on
+Windows 10 Pro 22H2 (build 19045), Intel Core i5-11400H, 16 GB RAM, Python 3.12.10, `gemma4:31b` through Ollama's cloud API (nothing downloaded locally), Snowflake trial account with an XSMALL warehouse. Package versions are pinned in `requirements.txt`.
 
-`run.bat help` lists the commands: `check`, `ask "question"`, `load`, `live`, `smoke`, `eval`, `keygen`, `test`, `repair`.
+## Everyday use
 
-## Live trace (what the code is really doing)
-`run.bat` turns the trace on by default (`DM_TRACE=1`). Each connection, network call, SQL statement, model call and workflow step is printed in the run.bat window as it happens, with sizes and timings. The same lines go to `logs\datamind.log`. Turn it off with `run.bat serve --quiet` (or `DM_TRACE=0`); it changes nothing else.
+| Command | What it does |
+|---|---|
+| `run.bat` | Start the web app and open it in your browser |
+| `run.bat check` | Run the pre-flight checks only |
+| `run.bat ask "How many orders are there?"` | Ask one question in the terminal |
+| `run.bat load` | Load the UCI and Our World in Data tables into Snowflake (overwrites existing tables) |
+| `run.bat live` | Prove the Snowflake layer works against your account |
+| `run.bat smoke` | Run the routing checks against real Gemma and Snowflake |
+| `run.bat eval` | Run the ground-truth evaluation (`eval --truth-only` just prints the expected answers) |
+| `run.bat keygen` | Create a key pair and print the SQL that registers it |
+| `run.bat test` | Run the offline unit tests |
+| `run.bat repair` | Reinstall all packages |
+
+In the app, each answer has a "How this was obtained / evidence" panel with the tables used, the stated assumptions, the executed SQL, the Snowflake query ID and the rows. You can look the query ID up in Snowsight under Monitoring, then Query History. The sidebar lists every dataset with its source and licence.
+
+### The live trace
+`run.bat` prints a line for every connection, network call, SQL statement, model call and workflow step as it happens, with sizes and timings. It's there so you can see what the code is really doing. The same lines go to `logs/datamind.log`. Add `--quiet` to any command, or set `DM_TRACE=0`, to turn it off. It changes nothing else.
 
 ```
 15:18:08.317  ASK       question received (57 chars, 0 earlier turn(s) in context): Which 5 countries had ...
@@ -35,40 +130,48 @@ Every command prints a **live trace** in the same window (see Live trace below);
 15:18:11.902  ASK       answer ready: status=answered query_id=01c7cf4c-000e-16cf-0002-b55a0001959e rows=5 total=3.6s
 ```
 
-| Tag | Shows |
+| Tag | What it shows |
 |---|---|
-| `ENV` | Python, OS, package versions, settings (secrets are only reported as set or empty) and the datasets read from `datasets.yaml` |
+| `ENV` | Python, OS, package versions, settings (secrets only show as set or empty) and the datasets read from `datasets.yaml` |
 | `SNOWFLAKE` | each connection: account, user, role, warehouse, login method (never the secret), statement timeout, session id |
-| `NET` | each HTTP request the Snowflake connector and the Ollama client make: method, path, status, bytes, time, result-chunk downloads; headers and query strings are never shown |
+| `NET` | each HTTP request from the Snowflake connector and the Ollama client: method, path, status, bytes, time. Headers and query strings are never shown |
 | `SQL` | each statement: length, the start of the text, then query id, columns, rows, result size and time |
-| `GEMMA` | each model call: model, host, prompt sizes, response size, prompt and output token counts, time |
-| `SCHEMA`, `PLAN`, `VALIDATE`, `GROUND`, `ASK`, `UI`, `EVAL`, `DOWNLOAD`, `LOAD` | the workflow steps: prompt built from the live schema, what Gemma chose, validator verdict, number-grounding check, final status, browser events, evaluation cases, dataset downloads and loads |
+| `GEMMA` | each model call: model, host, prompt sizes, response size, token counts, time |
+| `SCHEMA`, `PLAN`, `VALIDATE`, `GROUND`, `ASK`, `UI`, `EVAL`, `DOWNLOAD`, `LOAD` | the workflow steps, from building the prompt to the final answer |
 
-## Everything is live
-- Answers come from SQL that Snowflake runs at question time; nothing is cached or pre-written. The query ID shown in the evidence panel can be looked up in Snowsight under Monitoring, Query History.
-- The prompt is built at start-up from Snowflake's own `INFORMATION_SCHEMA`: live column names and types and live row counts. The only static knowledge is what you write in `datasets.yaml` (meanings, joins, metrics, defaults), and every fact stated there was checked against the live data (see the audit in DECISION.md, DEC-013).
-- The sidebar, the allowed tables and the dataset list all come from `datasets.yaml`; no table names are hard-coded in the Python code.
+## Configuration
 
-## Modules (one job each)
-| Module | Job |
+### Settings in `.env`
+Copy `.env.example` to `.env`. It's gitignored, so your secrets stay on your machine.
+
+| Variable | What it's for |
 |---|---|
-| `llm.py`, `prompts.py` | Gemma calls and prompt text. No data access. |
-| `snowflake_client.py` | Login and running SQL. The only data access. |
-| `executor.py` | Snowflake executor callable for other AI layers (read-only, session retry, row cap). |
-| `catalog.py` | Live table/column names plus the meanings, joins, metrics and examples from `datasets.yaml`. |
-| `validator.py` | Read-only SQL guardrail: one SELECT, allowlisted tables, functions and joins, automatic LIMIT. |
-| `grounding.py` | Checks that numbers in the explanation really appear in the result rows. |
-| `agent.py`, `models.py` | The workflow and its result type. |
-| `trace.py` | The live trace: one console line per connection, request, SQL statement, model call and workflow step. Off unless `DM_TRACE=1`. |
-| `config.py`, `datasets.yaml` | Which datasets exist (an explicit table list, or `tables: auto`). Add a dataset here, not in code. |
-| `preflight.py` | Readiness checks (settings, Snowflake, datasets, Gemma). |
-| `keys.py`, `ports.py`, `cli.py` | Key-pair setup, free port, ask-from-terminal. One job each. |
-| `run.bat` | Self-healing launcher. |
-| `eval/` | Live checks: `smoke` (routing) and the ground-truth evaluation. |
-| `app.py`, `load_data.py` | Streamlit UI and dataset loader (`uci` and `csv` recipes). |
-| `live_check.py` | Proves the Snowflake layer works against the real account (`run.bat live`). |
+| `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER` | Your account identifier and the login user (`DM_APP` if you used `run.bat keygen`) |
+| `SNOWFLAKE_PRIVATE_KEY_PATH` | Key-pair login (recommended). `run.bat keygen` fills this in |
+| `SNOWFLAKE_PAT`, `SNOWFLAKE_PASSWORD` | Alternatives to the key. Priority is key, then token, then password |
+| `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_READER_ROLE`, `SNOWFLAKE_LOADER_ROLE` | Defaults match `setup.sql`: `DM_WH`, `DM_READER`, `DM_LOADER` |
+| `DM_STATEMENT_TIMEOUT` | Seconds before Snowflake cancels a statement. Protects your credits |
+| `OLLAMA_HOST`, `OLLAMA_API_KEY`, `GEMMA_MODEL` | Where Gemma runs and which variant. Leave host and key empty for local Ollama |
+| `DM_TRACE` | `1` prints the live trace, `0` hides it |
 
-## Snowflake executor (for other AI layers)
+### Adding a dataset
+You add a dataset in `datasets.yaml`, not in code. The minimum is a name, database, schema and the list of tables. The more you describe, the better the answers get:
+
+- `columns`: what each column means, in plain words
+- `joins`: the only join conditions the validator will accept
+- `metrics`: business definitions the model must follow, such as how revenue is calculated
+- `notes`, `scope` and `examples`: one line per table, the data's coverage, and a few question-to-SQL examples
+
+To have the data loaded for you, add a `load:` recipe: `type: uci` with a `uci_id`, or `type: csv` with a `url`, plus the `table` name and an optional `rename:`. Use a list of recipes for a dataset with several tables. Then run `run.bat load` (or `python load_data.py`).
+
+One honest warning: config alone doesn't prove the answers are right. A new dataset needs a few evaluation questions of its own before you trust it.
+
+### Automatic tables (optional)
+Instead of a list, `tables: auto` lets Snowflake decide which tables a dataset has. For example, `{name: extras, description: Extra tables, database: UCI, schema: PUBLIC, tables: auto}` picks up any table or view in that schema that the read-only role can see, minus tables another dataset already lists. This happens at start-up, or when you press "Re-scan tables" in the sidebar. Discovered tables get live column names and types but no meanings, joins or metrics, so answers about them are weaker until you describe them. The shipped config doesn't use it, because every table is listed explicitly.
+
+## Using the Snowflake layer from your own code
+
+If you have your own AI layer and just want safe, read-only Snowflake access, use the executor:
 
 ```python
 from datamind.executor import make_executor
@@ -81,51 +184,94 @@ executor.close()                            # or: with make_executor() as execut
 
 | Behaviour | Detail |
 |---|---|
-| Read-only | Only `SELECT` / `WITH` run. The app also logs in as the read-only role `DM_READER`. |
-| SQL errors | Raised unchanged (`snowflake.connector.errors.ProgrammingError`) so the AI layer can repair its SQL. |
-| Lost session | An expired token or dropped connection is re-opened once and the query retried. A second failure is raised. |
-| Result cap | `max_rows` (default 1000); `truncated` is `True` if there was more. |
-| Statement timeout | 60 s per statement (`DM_STATEMENT_TIMEOUT`), so a runaway query cannot burn trial credits. |
-| Duplicate column names | Get `_2`, `_3` suffixes instead of silently overwriting each other in the row dicts. |
+| Read-only | Only `SELECT` and `WITH` statements run, and the login uses the read-only role `DM_READER` |
+| SQL errors | Raised unchanged (`snowflake.connector.errors.ProgrammingError`) so your code can repair the SQL |
+| Lost session | An expired token or dropped connection is reopened once and the query retried. A second failure is raised |
+| Result cap | `max_rows` (default 1000). `truncated` is `True` when there was more |
+| Statement timeout | `DM_STATEMENT_TIMEOUT` seconds per statement (60 if unset), so a runaway query can't burn your credits |
+| Duplicate column names | Get `_2`, `_3` suffixes instead of overwriting each other |
 
-## Adding a dataset
-Add an entry to `datasets.yaml` (database, schema, tables, optional `load:` recipe). No code changes. A `load:` recipe is `type: uci` (with `uci_id`) or `type: csv` (with `url`), plus `table` and an optional `rename:`; give a list of recipes for a dataset with several tables. `run.bat load` (or `python load_data.py`) loads them into your Snowflake account and overwrites existing tables.
+## Project layout
 
-**Automatic tables (optional):** `tables: auto` lets Snowflake decide which tables a dataset has. Add an entry such as `{name: extras, database: UCI, schema: PUBLIC, tables: auto}` and it picks up any table or view in that schema that the read-only role can see, minus tables another dataset already lists, at startup or when you press **Re-scan tables** in the sidebar. Discovered tables get live column names and types but no meanings, joins or metrics, so answers about them are less reliable until you declare those in `datasets.yaml`. No dataset uses it in the shipped config, because every table is listed explicitly.
+```
+app.py                   Streamlit web app
+datasets.yaml            datasets, tables, meanings, joins, metrics and load recipes
+setup.sql                one-time Snowflake setup (warehouse, databases, roles)
+load_data.py             loads the UCI and Our World in Data tables
+live_check.py            proves the Snowflake layer works against a real account
+run.bat                  Windows launcher (venv, packages, checks, commands)
+datamind/
+  agent.py, models.py    the question -> SQL -> rows -> explanation workflow and its result type
+  llm.py, prompts.py     Gemma calls and prompt text (no data access)
+  snowflake_client.py    login and running SQL (the only data access)
+  executor.py            read-only Snowflake callable for other AI layers
+  catalog.py             live schema plus the knowledge from datasets.yaml
+  validator.py           read-only SQL guardrail
+  grounding.py           checks that numbers in an explanation exist in the rows
+  config.py              reads datasets.yaml and settings
+  preflight.py           readiness checks
+  keys.py, ports.py, cli.py, logs.py, trace.py   key setup, free port, terminal questions, logging, live trace
+eval/                    ground-truth evaluation, routing smoke test and their results
+tests/                   offline unit tests (no Snowflake or Gemma needed)
+```
 
-## Guardrails
-Single statement only, no writes or DDL, only tables listed in `datasets.yaml`, fully qualified names, automatic `LIMIT`, and the app logs in as the read-only-by-default `DM_READER` role.
+Each module does one job. Gemma never computes data and Snowflake never interprets language, and we'd like to keep it that way.
 
-## Privacy note
-With Ollama cloud, the question and up to 50 result rows are sent to Ollama's servers for the explanation step. Use a local Ollama model to keep everything on your machine.
+## Tests and evaluation
 
-## Datasets and licences
-Each source has its own place in Snowflake:
+- **Unit tests:** `run.bat test` (or `python -m pytest tests -q`). 101 tests, all offline. They cover the validator, grounding, the workflow with fakes, response parsing, config, table discovery, the executor, the trace and the evaluation comparer.
+- **Routing smoke test:** `run.bat smoke`. 9 live cases checking that questions are answered, clarified or refused as they should be, including a prompt-injection attempt. Result: 9/9.
+- **Ground-truth evaluation:** `run.bat eval`. 80 questions across all six datasets. Each one has SQL we wrote by hand and ran directly in Snowflake, compared against the agent's rows. Results are saved in `eval/results/`, with a Snowflake query ID for every answer.
 
-| Snowflake database | Dataset | Tables | Source and licence |
-|---|---|---|---|
-| `SNOWFLAKE_SAMPLE_DATA` (`TPCH_SF1`) | `tpch` | 8 TPC-H tables | Snowflake sample data, referenced in place and not copied here. No open licence stated. |
-| `SNOWFLAKE_SAMPLE_DATA` (`TPCDS_SF10TCL`) | `tpcds` | 12 TPC-DS tables (`STORE_SALES` has 28.8 billion rows) | Snowflake sample data, referenced in place. No open licence stated. |
-| `UCI` (`PUBLIC`) | `wine_quality` | `WINE_QUALITY` (6,497 rows) | UCI Wine Quality (id 186), CC BY 4.0. |
-| `UCI` (`PUBLIC`) | `bank_marketing` | `BANK_MARKETING` (45,211 rows) | UCI Bank Marketing (id 222), CC BY 4.0. |
-| `UCI` (`PUBLIC`) | `student_performance` | `STUDENT_PERFORMANCE` (649 rows) | UCI Student Performance (id 320), CC BY 4.0. |
-| `OWID` (`PUBLIC`) | `owid` | `LIFE_EXPECTANCY`, `GDP_PER_CAPITA`, `POPULATION` | Our World in Data (life expectancy, GDP per capita, population with UN projections), CC BY 4.0 for the processed data. Underlying sources: Riley (2005), Zijdeman et al. (2015), HMD (2025), UN WPP (2024); Eurostat, OECD, IMF and World Bank (2026). Attribute Our World in Data and the original sources. |
+The numbers, honestly:
 
-`setup.sql` creates the `UCI` and `OWID` databases and the roles. `load_data.py` downloads the UCI and Our World in Data files into them at load time. No dataset files are stored in this repo.
+- The first run, on the original 47 TPC-H and wine questions with no tuning, scored **45/47 (96%)** (`eval/results/run1_before_fixes.md`). One failure was a real agent mistake (grouping parts by a name that isn't unique), which we fixed with a general prompt rule. The other was a truth case that asked for more than the question did, which we corrected.
+- We then added Our World in Data, Bank Marketing and Student Performance (19 cases, all passed the first time) and TPC-DS (11 cases). The latest full run scored **80/80** (`eval/results/latest.md`).
+- Treat the 96% first run as the fair estimate. The 100% comes after fixing what the set showed us, and the set is small. The questions are never used as prompt examples, but judges' unseen questions may well behave differently.
 
-**TPC-DS and credits:** TPC-DS queries scan very large tables, so a TPC-DS question can take from seconds to a few minutes on an XSMALL warehouse and uses more trial credit than the other datasets. The catalogue tells Gemma to filter by year first, and `DM_STATEMENT_TIMEOUT` is 300 seconds in `.env.example` (the code default is 60).
+What adding more datasets taught us:
 
-## Credits
-The semantic catalogue idea, number-grounding check, function/join allowlists and the first seven routing cases are adapted from the team's AI-module handoff package (MIT).
+- A question comparing two years with aliased CTEs was wrongly refused by the validator. That was a bug. We fixed it and added a unit test and an eval case (`o09`).
+- TPC-H and TPC-DS both have customers and revenue, so three of the original questions became ambiguous, and one quietly counted TPC-DS customers. A blanket "always ask which dataset" rule made things worse (54/80 on that run), so we reverted it. Instead, `datasets.yaml` now says generic retail questions default to TPC-H and the answer lists that assumption. We reworded three questions to name TPC-H and added unspecified versions as ambiguity cases. Because of that rewording, the 100% isn't a clean held-out result for those three.
+- The model varies a little from run to run. Once it wrote `'Germany'` where TPC-H stores `GERMANY`. We documented the uppercase names in the config.
 
 ## Known limitations
-Answer accuracy depends on the Gemma model. Verified so far: 101 unit tests, 9/9 live routing cases (`run.bat smoke`), and the 80-case ground-truth evaluation (`run.bat eval`).
+- Accuracy depends on the Gemma model. We've only measured `gemma4:31b`. Smaller local models will be less accurate, and we haven't put a number on how much.
+- The facts in `datasets.yaml` (meanings, metrics, defaults) are followed literally. If a definition there is wrong, the answer will be wrong in the same way.
+- The evidence panel lists tables, assumptions, SQL, rows and query ID. Filters aren't listed separately by code, so for those you read the SQL or the explanation.
+- TPC-DS questions can be slow and cost more credit, as described above.
+- Snowflake is cloud-only, so the app needs an internet connection and a live account.
+- `run.bat` is Windows-only. macOS and Linux users run the Python commands directly.
 
-**Evaluation (Gemma 4 31B, 2026-10-18):** the first run on the original TPC-H and wine questions scored **45/47 (96%)** with no tuning (`eval/results/run1_before_fixes.md`). It exposed one real agent mistake (grouping parts by a non-unique name, fixed with a general prompt rule) and one over-specified truth case (corrected). We then added Our World in Data, Bank Marketing and Student Performance (19 cases, all passed first time) and TPC-DS (11 cases). The full 80-case set scored **80/80** (`eval/results/latest.md`); the routing smoke test scores 9/9.
+## Troubleshooting
 
-What the extra datasets exposed, fixed and kept honest here:
-- A question comparing two years with aliased CTEs was wrongly refused by the validator (a bug, fixed, with a unit test and eval case `o09`).
-- TPC-H and TPC-DS both have customers and revenue, so three original questions became ambiguous (one silently counted TPC-DS customers). A blanket prompt rule to always ask which dataset made things worse (54/80 on that run) and was reverted. The fix is a default in `datasets.yaml` (generic retail questions use TPC-H and list that assumption), three questions reworded to say TPC-H, and three unspecified versions added as ambiguity cases. Those three reworded questions mean the final 100% is not a clean held-out result for them.
-- Occasional run-to-run model variation is expected (for example `'Germany'` instead of the stored `GERMANY` once; we documented the uppercase names).
+| You see | What to do |
+|---|---|
+| `.env not found` | Copy `.env.example` to `.env` and fill it in. `run.bat` does this for you on first run. |
+| `no Snowflake credentials` | Run `run.bat keygen` and paste the SQL it prints into Snowsight. |
+| `private key file not found` | The key path in `.env` is wrong or the key was moved. Run `run.bat keygen` again. |
+| `Snowflake login: ... JWT token is invalid` | The public key isn't registered for that user, or the user name doesn't match. Use the `DM_APP` user that `run.bat keygen` sets up, and run the SQL it printed. |
+| A programmatic access token is rejected | Snowflake requires a network policy before it accepts tokens. Key-pair login avoids this. |
+| `tables not found: ...` | The UCI and Our World in Data tables aren't loaded yet. Run `run.bat load`. |
+| `OLLAMA_HOST points to Ollama cloud but OLLAMA_API_KEY is empty` | Add your key from https://ollama.com/settings/keys, or switch to local Ollama (see `.env.example`). |
+| `Gemma rejected the credentials` | Check `OLLAMA_API_KEY`, or run `ollama signin` if you use local Ollama with a cloud model. |
+| A TPC-DS question times out | Raise `DM_STATEMENT_TIMEOUT` in `.env`, or narrow the question to a year or a category. |
+| `UCI` and `OWID` don't appear in Snowsight | You're probably browsing as ACCOUNTADMIN, which doesn't own them. Switch the role to `DM_READER` (bottom-left menu, then Switch Role). |
+| The web app port is busy | `run.bat` picks the next free port automatically and prints the address. |
+| Anything else | Read `logs/datamind.log`. It has the full error, while the app only shows a short, safe message. |
 
-Treat 96% on the first, untuned run as the fair estimate: the final 100% comes after fixing what the set revealed, and the set is small. The questions are not used as prompt examples. Judges' unseen questions may behave differently. Metric definitions in `datasets.yaml` are followed literally; keep them accurate.
+## Privacy and security
+- If you use Ollama's cloud, your question and up to 50 result rows are sent to Ollama's servers for the explanation step. Use a local Ollama model to keep everything on your machine.
+- Secrets live only in `.env` and `.keys/`, and both are gitignored. The live trace and the logs never print keys, tokens or passwords.
+- The app logs in with a read-only role and the validator only lets read-only SQL through.
+- Found a security problem? Please see [SECURITY.md](SECURITY.md) rather than opening a public issue.
+
+## Contributing
+Contributions are welcome, from typo fixes to new datasets. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to set things up, what we test before merging and how to add a dataset. Please also read our [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Credits and licence
+The semantic catalogue idea, the number-grounding check, the function and join allowlists and the first seven routing cases were adapted from our team's AI-module handoff package (MIT).
+
+Data comes from Snowflake's sample data, the UCI Machine Learning Repository and Our World in Data. See [Datasets and licences](#datasets-and-licences) for the terms of each.
+
+The code is released under the [MIT Licence](LICENSE). You're free to use it, change it and share it, including commercially, as long as you keep the copyright notice.
