@@ -85,12 +85,13 @@ Each source has its own place in Snowflake:
 The semantic catalogue idea, number-grounding check, function/join allowlists and the first seven routing cases are adapted from the team's AI-module handoff package (MIT).
 
 ## Known limitations
-Answer accuracy depends on the Gemma model. Verified so far: 93 unit tests, 9/9 live routing cases (`run.bat smoke`), and the 66-case ground-truth evaluation (`run.bat eval`).
+Answer accuracy depends on the Gemma model. Verified so far: 93 unit tests, 9/9 live routing cases (`run.bat smoke`), and the 80-case ground-truth evaluation (`run.bat eval`).
 
-**Evaluation (Gemma 4 31B, 2026-10-18):** the first run on the original TPC-H and wine questions scored **45/47 (96%)** with no tuning (`eval/results/run1_before_fixes.md`). It exposed one real agent mistake (grouping parts by a non-unique name, fixed with a general prompt rule) and one over-specified truth case (corrected). After the fixes it scored 47/47. We then added Our World in Data, Bank Marketing and Student Performance with 19 more cases; they all passed on the first run. The full 66-case set scored **66/66** (`eval/results/latest.md`).
+**Evaluation (Gemma 4 31B, 2026-10-18):** the first run on the original TPC-H and wine questions scored **45/47 (96%)** with no tuning (`eval/results/run1_before_fixes.md`). It exposed one real agent mistake (grouping parts by a non-unique name, fixed with a general prompt rule) and one over-specified truth case (corrected). We then added Our World in Data, Bank Marketing and Student Performance (19 cases, all passed first time) and TPC-DS (11 cases). The full 80-case set scored **80/80** (`eval/results/latest.md`); the routing smoke test scores 9/9.
 
-Two more things the extra datasets exposed, both fixed and kept honest here:
-- A question that compares two years with aliased CTEs ("which 5 countries gained the most life expectancy between 1990 and 2020, and what was their GDP per capita") was wrongly refused by the validator. That was a validator bug, fixed and covered by a unit test and eval case `o09`.
-- One full run failed `c05` (the model wrote `'Germany'` where TPC-H stores `GERMANY`) and then passed 3 of 3 reruns. We documented the uppercase naming in `datasets.yaml`; the next full run passed. Expect occasional model variation.
+What the extra datasets exposed, fixed and kept honest here:
+- A question comparing two years with aliased CTEs was wrongly refused by the validator (a bug, fixed, with a unit test and eval case `o09`).
+- TPC-H and TPC-DS both have customers and revenue, so three original questions became ambiguous (one silently counted TPC-DS customers). A blanket prompt rule to always ask which dataset made things worse (54/80 on that run) and was reverted. The fix is a default in `datasets.yaml` (generic retail questions use TPC-H and list that assumption), three questions reworded to say TPC-H, and three unspecified versions added as ambiguity cases. Those three reworded questions mean the final 100% is not a clean held-out result for them.
+- Occasional run-to-run model variation is expected (for example `'Germany'` instead of the stored `GERMANY` once; we documented the uppercase names).
 
 Treat 96% on the first, untuned run as the fair estimate: the final 100% comes after fixing what the set revealed, and the set is small. The questions are not used as prompt examples. Judges' unseen questions may behave differently. Metric definitions in `datasets.yaml` are followed literally; keep them accurate.
