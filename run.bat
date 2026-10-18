@@ -13,6 +13,11 @@ if defined WT_SESSION (
     set "OK=!ESC![32m[OK]!ESC![0m" & set "FAIL=!ESC![31m[FAIL]!ESC![0m" & set "WARN=!ESC![33m[*]!ESC![0m"
 )
 
+:: Live trace: every connection, network call, SQL statement, model call and workflow step is printed in this window
+:: with sizes and timings. On by default here; run.bat <command> --quiet (or set DM_TRACE=0) turns it off.
+if not defined DM_TRACE set "DM_TRACE=1"
+for %%A in (%*) do if /i "%%~A"=="--quiet" set "DM_TRACE=0"
+
 set "CMD=%~1"
 if not defined CMD set "CMD=serve"
 if /i "!CMD!"=="help" goto usage
@@ -21,6 +26,7 @@ if /i "!CMD!"=="-h" goto usage
 
 echo.
 echo   DataMind - talk to your data  (Gemma + Snowflake)
+if "!DM_TRACE!"=="1" ( echo   Live trace is ON: each call is shown below with sizes and timings ^(--quiet turns it off, full log in logs\datamind.log^) ) else ( echo   Live trace is off ^(DM_TRACE=0^) )
 echo.
 
 :: ---------------------------------------------------------------- 1. Python 3.10+
@@ -64,6 +70,7 @@ if errorlevel 1 (
     )
 )
 echo   !OK! all packages present
+if "!DM_TRACE!"=="1" "!PY!" -m datamind.trace
 
 :: Commands that need nothing else.
 if /i "!CMD!"=="keygen" "!PY!" -m datamind.keys & exit /b !errorlevel!
@@ -161,6 +168,8 @@ echo     eval     run the ground-truth evaluation ^(eval --truth-only checks the
 echo     keygen   create a key pair and print the SQL that registers it in Snowflake
 echo     test     run the automated tests
 echo     repair   reinstall all packages
+echo.
+echo   Add --quiet to any command to hide the live trace (run.bat serve --quiet). Trace lines also go to logs\datamind.log.
 echo.
 echo   Self-healing: creates .venv, installs missing packages, creates .env,
 echo   loads missing datasets, and picks a free port automatically.

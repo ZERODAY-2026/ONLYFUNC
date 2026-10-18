@@ -14,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from datamind import llm
+from datamind import llm, trace
 from datamind.agent import Agent
 from datamind.config import load_config
 from datamind.logs import get_logger
@@ -53,6 +53,7 @@ def judge(case: dict, final, conn) -> tuple[bool, str, list]:
 def run_case(agent: Agent, conn, case: dict) -> dict:
     agent.history.clear()
     turns = case.get("turns") or [case["question"]]
+    trace.emit("EVAL", f"case {case['id']} ({case['category']}, expect {case.get('expect', 'query')}): {len(turns)} turn(s)")
     started = time.time()
     record = {"id": case["id"], "category": case["category"], "questions": turns, "expect": case.get("expect", "query")}
     try:

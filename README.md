@@ -14,7 +14,40 @@ question -> Gemma (SQL) -> validator (SELECT only, allowlisted tables, LIMIT) ->
 3. **Gemma:** put an Ollama API key in `.env` as `OLLAMA_API_KEY` (https://ollama.com/settings/keys), or run Ollama locally (see `.env.example`).
 4. **Run:** `run.bat`. It creates `.venv`, installs packages, loads missing datasets, checks everything and opens the app.
 
+Every command prints a **live trace** in the same window (see Live trace below); add `--quiet` to hide it.
+
 `run.bat help` lists the commands: `check`, `ask "question"`, `load`, `live`, `smoke`, `eval`, `keygen`, `test`, `repair`.
+
+## Live trace (what the code is really doing)
+`run.bat` turns the trace on by default (`DM_TRACE=1`). Each connection, network call, SQL statement, model call and workflow step is printed in the run.bat window as it happens, with sizes and timings. The same lines go to `logs\datamind.log`. Turn it off with `run.bat serve --quiet` (or `DM_TRACE=0`); it changes nothing else.
+
+```
+15:18:08.317  ASK       question received (57 chars, 0 earlier turn(s) in context): Which 5 countries had ...
+15:18:08.317  GEMMA     -> gemma4:31b via https://ollama.com | system prompt 24675 chars, user message 67 chars, max_tokens=700, json mode
+15:18:08.516  NET       POST https://ollama.com/api/chat (ollama) sending 25118 bytes
+15:18:09.563  NET       POST ollama.com/api/chat -> HTTP 200 (595 bytes) in 1046 ms
+15:18:09.563  GEMMA     <- ok 1246 ms response_chars=323 prompt_tokens=7809 output_tokens=121
+15:18:09.564  PLAN      attempt 1: Gemma chose action='query', sql=160 chars, assumptions=1
+15:18:09.580  VALIDATE  accepted: read-only, tables=['OWID.PUBLIC.GDP_PER_CAPITA']; sql 160 chars -> 160 chars to execute
+15:18:09.581  SQL       -> 160 chars: SELECT ENTITY, GDP_PER_CAPITA FROM OWID.PUBLIC.GDP_PER_CAPITA WHERE YEAR = 2020 ...
+15:18:09.717  SQL       <- ok 136 ms query_id=01c7cf4c-000e-1619-0000-0002b55a6e4d columns=2 rows=5 result_chars=118
+15:18:11.901  GROUND    explanation 510 chars; every number appears in the result rows or question: True
+15:18:11.902  ASK       answer ready: status=answered query_id=01c7cf4c-000e-16cf-0002-b55a0001959e rows=5 total=3.6s
+```
+
+| Tag | Shows |
+|---|---|
+| `ENV` | Python, OS, package versions, settings (secrets are only reported as set or empty) and the datasets read from `datasets.yaml` |
+| `SNOWFLAKE` | each connection: account, user, role, warehouse, login method (never the secret), statement timeout, session id |
+| `NET` | each HTTP request the Snowflake connector and the Ollama client make: method, path, status, bytes, time, result-chunk downloads; headers and query strings are never shown |
+| `SQL` | each statement: length, the start of the text, then query id, columns, rows, result size and time |
+| `GEMMA` | each model call: model, host, prompt sizes, response size, prompt and output token counts, time |
+| `SCHEMA`, `PLAN`, `VALIDATE`, `GROUND`, `ASK`, `UI`, `EVAL`, `DOWNLOAD`, `LOAD` | the workflow steps: prompt built from the live schema, what Gemma chose, validator verdict, number-grounding check, final status, browser events, evaluation cases, dataset downloads and loads |
+
+## Everything is live
+- Answers come from SQL that Snowflake runs at question time; nothing is cached or pre-written. The query ID shown in the evidence panel can be looked up in Snowsight under Monitoring, Query History.
+- The prompt is built at start-up from Snowflake's own `INFORMATION_SCHEMA`: live column names and types and live row counts. The only static knowledge is what you write in `datasets.yaml` (meanings, joins, metrics, defaults), and every fact stated there was checked against the live data (see the audit in DECISION.md, DEC-013).
+- The sidebar, the allowed tables and the dataset list all come from `datasets.yaml`; no table names are hard-coded in the Python code.
 
 ## Modules (one job each)
 | Module | Job |
@@ -26,6 +59,7 @@ question -> Gemma (SQL) -> validator (SELECT only, allowlisted tables, LIMIT) ->
 | `validator.py` | Read-only SQL guardrail: one SELECT, allowlisted tables, functions and joins, automatic LIMIT. |
 | `grounding.py` | Checks that numbers in the explanation really appear in the result rows. |
 | `agent.py`, `models.py` | The workflow and its result type. |
+| `trace.py` | The live trace: one console line per connection, request, SQL statement, model call and workflow step. Off unless `DM_TRACE=1`. |
 | `config.py`, `datasets.yaml` | Which datasets exist (an explicit table list, or `tables: auto`). Add a dataset here, not in code. |
 | `preflight.py` | Readiness checks (settings, Snowflake, datasets, Gemma). |
 | `keys.py`, `ports.py`, `cli.py` | Key-pair setup, free port, ask-from-terminal. One job each. |
@@ -85,7 +119,7 @@ Each source has its own place in Snowflake:
 The semantic catalogue idea, number-grounding check, function/join allowlists and the first seven routing cases are adapted from the team's AI-module handoff package (MIT).
 
 ## Known limitations
-Answer accuracy depends on the Gemma model. Verified so far: 93 unit tests, 9/9 live routing cases (`run.bat smoke`), and the 80-case ground-truth evaluation (`run.bat eval`).
+Answer accuracy depends on the Gemma model. Verified so far: 101 unit tests, 9/9 live routing cases (`run.bat smoke`), and the 80-case ground-truth evaluation (`run.bat eval`).
 
 **Evaluation (Gemma 4 31B, 2026-10-18):** the first run on the original TPC-H and wine questions scored **45/47 (96%)** with no tuning (`eval/results/run1_before_fixes.md`). It exposed one real agent mistake (grouping parts by a non-unique name, fixed with a general prompt rule) and one over-specified truth case (corrected). We then added Our World in Data, Bank Marketing and Student Performance (19 cases, all passed first time) and TPC-DS (11 cases). The full 80-case set scored **80/80** (`eval/results/latest.md`); the routing smoke test scores 9/9.
 

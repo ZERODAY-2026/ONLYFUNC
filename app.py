@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 
 from datamind.agent import Agent
+from datamind import trace
 from datamind.config import load_config
 from datamind.logs import get_logger
 from datamind.snowflake_client import connect
@@ -14,6 +15,7 @@ st.caption("Gemma writes the SQL. Snowflake computes the answer. Every answer sh
 @st.cache_resource
 def get_agent() -> Agent:
     cfg = load_config()
+    trace.emit("UI", f"starting the agent: {len(cfg.datasets)} datasets from datasets.yaml")
     return Agent(connect("SNOWFLAKE_READER_ROLE"), cfg)
 
 
@@ -32,6 +34,7 @@ with st.sidebar:
             continue
         st.markdown(f"**{d.name}**: {d.description}  \n_Source: {d.source}; licence: {d.licence}_")
     if st.button("Re-scan tables", help="Pick up tables added to or dropped from Snowflake since the app started"):
+        trace.emit("UI", "Re-scan tables pressed")
         agent.refresh_tables()
         st.rerun()
     if st.button("Clear conversation"):
@@ -61,6 +64,7 @@ for a in st.session_state["log"]:
                     st.dataframe(pd.DataFrame(a.rows, columns=a.columns))
 
 if q := st.chat_input("Ask a question about your data"):
+    trace.emit("UI", f"question submitted in the browser ({len(q)} chars)")
     with st.spinner("Thinking..."):
         st.session_state["log"].append(agent.ask(q))
     st.rerun()

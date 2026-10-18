@@ -22,7 +22,7 @@ def fake_schema(monkeypatch, tables: list[str]):
         seen.append(sql)
         if "INFORMATION_SCHEMA.COLUMNS" in sql:  # describe_schema: one column per table that is asked for
             asked = [t for t in tables if f"'{t}'" in sql]
-            return QueryResult(columns=["T", "C", "D"], rows=[(t, "ID", "NUMBER") for t in asked], query_id="q")
+            return QueryResult(columns=["T", "C", "D", "N"], rows=[(t, "ID", "NUMBER", 1234) for t in asked], query_id="q")
         return QueryResult(columns=["TABLE_NAME"], rows=[(t,) for t in tables], query_id="q")
 
     monkeypatch.setattr(catalog, "run_query", fake_run_query)

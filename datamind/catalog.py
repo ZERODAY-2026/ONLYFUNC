@@ -2,6 +2,7 @@
 examples declared in datasets.yaml, so prompts always match reality and the business definitions."""
 import json
 
+from . import trace
 from .config import Config
 from .snowflake_client import run_query
 
@@ -19,6 +20,7 @@ def discover_tables(conn, cfg: Config) -> None:
             WHERE table_schema = '{d.schema.upper()}' AND table_type IN ('BASE TABLE', 'VIEW')
             ORDER BY table_name""")
         d.tables = [r[0] for r in res.rows if r[0].upper() not in claimed]
+        trace.emit("SCHEMA", f"auto dataset {d.name}: {len(res.rows)} tables visible in {d.database}.{d.schema}, {len(d.tables)} unclaimed -> {d.tables}")
 
 
 def describe_schema(conn, cfg: Config) -> str:
@@ -33,17 +35,21 @@ def describe_schema(conn, cfg: Config) -> str:
         if d.auto:
             lines.append("These tables were discovered automatically: no meanings, joins or metrics are declared. Join only on columns with the same name and meaning, and state your assumptions.")
         res = run_query(conn, f"""
-            SELECT table_name, column_name, data_type
-            FROM {d.database}.INFORMATION_SCHEMA.COLUMNS
-            WHERE table_schema = '{d.schema.upper()}'
-              AND table_name IN ({", ".join(repr(t.upper()) for t in d.tables)})
-            ORDER BY table_name, ordinal_position""")
+            SELECT c.table_name, c.column_name, c.data_type, t.row_count
+            FROM {d.database}.INFORMATION_SCHEMA.COLUMNS c
+            JOIN {d.database}.INFORMATION_SCHEMA.TABLES t ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+            WHERE c.table_schema = '{d.schema.upper()}'
+              AND c.table_name IN ({", ".join(repr(t.upper()) for t in d.tables)})
+            ORDER BY c.table_name, c.ordinal_position""")
         tables: dict[str, list[str]] = {}
-        for table, column, dtype in res.rows:
+        row_counts: dict[str, int | None] = {}
+        for table, column, dtype, row_count in res.rows:
             meaning = d.columns.get(table, {}).get(column)
             tables.setdefault(table, []).append(f"{column} {dtype}" + (f" [{meaning}]" if meaning else ""))
+            row_counts[table] = row_count
         for table, cols in tables.items():
-            note = f"  -- {d.notes[table]}" if table in d.notes else ""
+            live = f" [live row count from Snowflake: {int(row_counts[table]):,}]" if row_counts.get(table) is not None else ""
+            note = (f"  -- {d.notes[table]}" if table in d.notes else "") + live
             lines.append(f"{d.database}.{d.schema}.{table}({', '.join(cols)}){note}")
         if d.joins:
             lines.append("Allowed joins (use only these): " + "; ".join(d.joins))

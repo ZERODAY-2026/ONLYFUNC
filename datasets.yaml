@@ -79,7 +79,7 @@ datasets:
     database: UCI
     schema: PUBLIC
     tables: [WINE_QUALITY]
-    scope: 6,497 Portuguese Vinho Verde wine samples (1,599 red and 4,898 white).
+    scope: Portuguese Vinho Verde red and white wine samples (COLOR holds the word red or white).
     notes:
       WINE_QUALITY: One row per wine sample
     columns:
@@ -113,7 +113,7 @@ datasets:
       - GDP_PER_CAPITA.ENTITY = POPULATION.ENTITY
       - GDP_PER_CAPITA.YEAR = POPULATION.YEAR
     metrics:
-      country_rows: the tables also hold regions and income groups (Africa, World, High-income countries ...); a row is a real country when CODE IS NOT NULL AND CODE NOT LIKE 'OWID%'. Use only country rows for country rankings and averages unless the user asks for regions or the world
+      country_rows: the tables also hold aggregates (World, continents, income groups, World Bank WB_* and UN UN_* groups). A row is a real country when LENGTH(CODE) = 3 (an ISO alpha-3 code) or CODE = 'OWID_KOS' (Kosovo). Use only country rows for country rankings and averages unless the user asks for regions or the world
       world_and_regions: for global or world-wide figures use the row with ENTITY = 'World' (and ENTITY = the region name for a continent or income group); never average or sum country rows to get these
       join_keys: always join indicator tables on BOTH ENTITY and YEAR
       latest_value: the most recent YEAR that has a non-NULL value for that indicator, per entity
@@ -129,7 +129,7 @@ datasets:
     database: UCI
     schema: PUBLIC
     tables: [BANK_MARKETING]
-    scope: 45,211 clients contacted by phone in a marketing campaign; SUBSCRIBED says whether the client took a term deposit.
+    scope: Clients contacted by phone in a bank marketing campaign; SUBSCRIBED says whether the client took a term deposit.
     notes:
       BANK_MARKETING: One row per client contact record
     columns:
@@ -149,7 +149,7 @@ datasets:
     database: UCI
     schema: PUBLIC
     tables: [STUDENT_PERFORMANCE]
-    scope: 649 students of two Portuguese secondary schools (Portuguese-language course); grades G1, G2 and G3 are on a 0-20 scale.
+    scope: Students of two Portuguese secondary schools (Portuguese-language course); grades G1, G2 and G3 are on a 0-20 scale.
     notes:
       STUDENT_PERFORMANCE: One row per student
     columns:
@@ -170,16 +170,16 @@ datasets:
     tables: [STORE_SALES, STORE_RETURNS, CATALOG_SALES, WEB_SALES, DATE_DIM, ITEM, CUSTOMER, CUSTOMER_ADDRESS, CUSTOMER_DEMOGRAPHICS, STORE, PROMOTION, WAREHOUSE]
     scope: Use this dataset only when the question mentions TPC-DS, stores, store/catalogue/web channels, items, product categories or store returns. Benchmark retail data with sales from 1998-01-02 to 2003-01-02 (DATE_DIM itself spans 1900-2100). STORE_SALES has 28.8 billion rows, so every query on a sales or returns table must be limited by date.
     notes:
-      STORE_SALES: One row per item sold in a store ticket (28.8 billion rows)
+      STORE_SALES: One row per item sold in a store ticket (a very large table)
       STORE_RETURNS: One row per item returned to a store
       CATALOG_SALES: One row per item sold through the catalogue channel
       WEB_SALES: One row per item sold through the web channel
       DATE_DIM: One row per calendar day, 1900-2100; join sales to it to filter by year, month or day
-      ITEM: One row per product (402,000); categories are Books, Children, Electronics, Home, Jewelry, Men, Music, Shoes, Sports, Women
-      CUSTOMER: One row per customer (65 million)
+      ITEM: One row per product; categories are Books, Children, Electronics, Home, Jewelry, Men, Music, Shoes, Sports, Women
+      CUSTOMER: One row per customer
       CUSTOMER_ADDRESS: One row per address (state in CA_STATE, two-letter code)
       CUSTOMER_DEMOGRAPHICS: One row per demographic profile (gender, marital status, education, credit rating)
-      STORE: One row per store (1,500); S_STATE is the two-letter state code
+      STORE: One row per store; S_STATE is the two-letter state code
       PROMOTION: One row per promotion
       WAREHOUSE: One row per warehouse
     columns:

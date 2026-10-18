@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import snowflake.connector
 
+from . import trace
 from .config import env
 
 
@@ -30,15 +31,26 @@ def connect(role_var: str = "SNOWFLAKE_READER_ROLE"):
     else:
         kwargs["password"] = env("SNOWFLAKE_PASSWORD")
     # Cap runtime of any single statement so a runaway query cannot burn trial credits.
-    kwargs["session_parameters"] = {"STATEMENT_TIMEOUT_IN_SECONDS": int(os.getenv("DM_STATEMENT_TIMEOUT", "60"))}
-    return snowflake.connector.connect(**kwargs)
+    timeout = int(os.getenv("DM_STATEMENT_TIMEOUT", "60"))
+    kwargs["session_parameters"] = {"STATEMENT_TIMEOUT_IN_SECONDS": timeout}
+    auth = "key-pair" if key_file else ("access token" if pat else "password")  # the method only, never the secret
+    trace.install_network_trace()
+    with trace.span("SNOWFLAKE", f"connect account={kwargs['account']} user={kwargs['user']} role={kwargs['role']} "
+                                  f"warehouse={kwargs['warehouse']} auth={auth} statement_timeout={timeout}s") as info:
+        conn = snowflake.connector.connect(**kwargs)
+        info["session_id"] = conn.session_id
+    return conn
 
 
 def run_query(conn, sql: str) -> QueryResult:
     cur = conn.cursor()
     try:
-        cur.execute(sql)
-        columns = [c[0] for c in cur.description]
-        return QueryResult(columns, cur.fetchall(), cur.sfqid)
+        with trace.span("SQL", f"{len(sql)} chars: {trace.short(sql)}") as info:
+            cur.execute(sql)
+            columns = [c[0] for c in cur.description]
+            rows = cur.fetchall()
+            info.update(query_id=cur.sfqid, columns=len(columns), rows=len(rows),
+                        result_chars=sum(len(str(cell)) for row in rows for cell in row))
+        return QueryResult(columns, rows, cur.sfqid)
     finally:
         cur.close()

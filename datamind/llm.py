@@ -6,6 +6,7 @@ import os
 import ollama
 
 from . import config  # noqa: F401  (loads .env before settings are read)
+from . import trace
 from .logs import get_logger
 
 log = get_logger()
@@ -22,18 +23,24 @@ def model_name() -> str:
 def client() -> ollama.Client:
     key = os.getenv("OLLAMA_API_KEY")
     headers = {"Authorization": f"Bearer {key}"} if key else None
-    return ollama.Client(host=os.getenv("OLLAMA_HOST") or None, headers=headers)
+    hooks = trace.httpx_hooks("ollama")  # {} unless DM_TRACE is on
+    return ollama.Client(host=os.getenv("OLLAMA_HOST") or None, headers=headers, **({"event_hooks": hooks} if hooks else {}))
 
 
 def _chat(system: str, user: str, max_tokens: int, **kwargs) -> str:
     try:
-        r = client().chat(
-            model=model_name(),
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            options={"temperature": 0, "num_predict": max_tokens},
-            **kwargs,
-        )
-        content = r["message"]["content"]
+        host = os.getenv("OLLAMA_HOST") or "local Ollama"
+        with trace.span("GEMMA", f"{model_name()} via {host} | system prompt {len(system)} chars, user message {len(user)} chars, "
+                                 f"max_tokens={max_tokens}{', json mode' if kwargs.get('format') else ''}") as info:
+            r = client().chat(
+                model=model_name(),
+                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                options={"temperature": 0, "num_predict": max_tokens},
+                **kwargs,
+            )
+            content = r["message"]["content"]
+            info.update(response_chars=len(content or ""), prompt_tokens=getattr(r, "prompt_eval_count", None),
+                        output_tokens=getattr(r, "eval_count", None))
     except Exception as e:  # network, auth, model-not-found: re-raised as LLMError with the cause attached
         log.exception("Gemma call failed (model %s)", model_name())
         if getattr(e, "status_code", None) == 401:
