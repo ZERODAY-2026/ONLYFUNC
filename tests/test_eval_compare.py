@@ -11,8 +11,8 @@ def test_norm_makes_snowflake_values_comparable():
 
 def test_scalar_matches_exact_and_rounded_values():
     assert match([(1500000,)], [(1500000,)], "scalar")[0]
-    assert match([(10.58755289,)], [(10.59,)], "scalar")[0]            # ROUND(x, 2) is accepted
-    assert match([(42,)], [("orders", 42)], "scalar")[0]               # extra label column is fine
+    assert match([(10.58755289,)], [(10.59,)], "scalar")[0]            # ROUND(x, 2) chalega
+    assert match([(42,)], [("orders", 42)], "scalar")[0]               # extra label column chalega
     ok, why = match([(42,)], [(43,)], "scalar")
     assert not ok and "expected 42" in why
 

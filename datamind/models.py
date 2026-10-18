@@ -1,10 +1,10 @@
-"""Data shapes shared between the workflow and the UI."""
+"""Woh data shapes jo workflow aur UI dono use karte hain."""
 from dataclasses import dataclass, field
 
 
 @dataclass
 class Answer:
-    status: str  # answered | empty | clarify | unsupported | refused | error
+    status: str  # status: answered | empty | clarify | unsupported | refused | error
     question: str
     message: str = ""
     sql: str = ""

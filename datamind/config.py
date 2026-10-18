@@ -1,4 +1,4 @@
-"""Loads datasets.yaml and environment settings."""
+"""datasets.yaml aur environment settings load karta hai."""
 import os
 import warnings
 from dataclasses import dataclass, field
@@ -9,11 +9,11 @@ from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
-# The Snowflake connector prints a long FutureWarning about a keep-alive default on every login; it is harmless here.
+# Snowflake connector har login par keep-alive default ka lamba FutureWarning print karta hai; yahan isse koi problem nahi hai.
 warnings.filterwarnings("ignore", message=".*enable_server_session_keep_alive.*", category=FutureWarning)
 
-Table = tuple[str, str, str]            # (DATABASE, SCHEMA, TABLE), uppercase
-Column = tuple[str, str, str, str]      # (DATABASE, SCHEMA, TABLE, COLUMN), uppercase
+Table = tuple[str, str, str]            # (DATABASE, SCHEMA, TABLE), uppercase me
+Column = tuple[str, str, str, str]      # (DATABASE, SCHEMA, TABLE, COLUMN), uppercase me
 
 
 @dataclass
@@ -22,18 +22,18 @@ class Dataset:
     description: str
     database: str
     schema: str
-    tables: list[str] | str        # a list, or the word auto (see catalog.discover_tables)
+    tables: list[str] | str        # ya toh list, ya shabd auto (dekho catalog.discover_tables)
     source: str = ""
     licence: str = ""
-    load: dict | list = field(default_factory=dict)  # one recipe, or a list (one per table); see load_data.py
-    # Optional semantic catalogue (see datasets.yaml)
+    load: dict | list = field(default_factory=dict)  # ek recipe, ya list (har table ke liye ek); dekho load_data.py
+    # Optional semantic catalogue (dekho datasets.yaml)
     scope: str = ""
     metrics: dict[str, str] = field(default_factory=dict)
     joins: list[str] = field(default_factory=list)
     columns: dict[str, dict[str, str]] = field(default_factory=dict)
     notes: dict[str, str] = field(default_factory=dict)
     examples: list[dict] = field(default_factory=list)
-    auto: bool = field(default=False, init=False)  # tables are discovered from Snowflake, not listed
+    auto: bool = field(default=False, init=False)  # tables Snowflake se discover hoti hain, yahan likhi nahi hoti
 
     def __post_init__(self):
         if isinstance(self.tables, str):
@@ -56,13 +56,13 @@ class Dataset:
 class Config:
     datasets: list[Dataset]
     max_rows: int = 200
-    allowed_functions: list[str] = field(default_factory=list)  # extra SQL functions beyond the validator's defaults
+    allowed_functions: list[str] = field(default_factory=list)  # validator ke defaults ke alawa extra SQL functions
 
     def allowed_tables(self) -> set[Table]:
         return {d.qualified(t) for d in self.datasets for t in d.tables}
 
     def join_rules(self) -> tuple[set[frozenset[Column]], set[Table]]:
-        """(allowed join pairs, tables that are constrained). A table is constrained when its dataset declares joins."""
+        """(allowed join pairs, constrained tables). Table tab constrained hoti hai jab uska dataset joins declare karta hai."""
         pairs: set[frozenset[Column]] = set()
         constrained: set[Table] = set()
         for d in self.datasets:

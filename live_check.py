@@ -1,6 +1,6 @@
-"""Live check of the Snowflake layer against your real account. Run: python live_check.py
+"""Aapke real Snowflake account ke against Snowflake layer ka live check. Chalao: python live_check.py
 
-Uses only the executor (the same object the AI layer will call). Exit code 0 only if every check passes."""
+Sirf executor use karta hai (wahi object jo AI layer call karegi). Exit code 0 tabhi aata hai jab har check pass ho."""
 import sys
 
 import snowflake.connector.errors as sf_errors

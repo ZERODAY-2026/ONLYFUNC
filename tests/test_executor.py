@@ -1,4 +1,4 @@
-"""Executor tests with a fake Snowflake connection (no network, no credentials)."""
+"""Fake Snowflake connection ke saath executor tests (network nahi, credentials nahi)."""
 import pytest
 import snowflake.connector.errors as sf_errors
 
@@ -36,7 +36,7 @@ class FakeConn:
 
 
 class Factory:
-    """connect_fn that hands out fake connections and counts logins."""
+    """connect_fn jo fake connections deta hai aur logins ginta hai."""
     def __init__(self, *conns):
         self.conns, self.logins = list(conns), 0
 
@@ -93,7 +93,7 @@ def test_network_failure_reconnects_once_and_a_second_failure_is_raised():
     f = Factory(FakeConn(failures=list(down)), FakeConn(failures=list(down)))
     with pytest.raises(sf_errors.OperationalError):
         executor(f)("SELECT A, B FROM T")
-    assert f.logins == 2  # exactly one retry, no loop
+    assert f.logins == 2  # bilkul ek retry, koi loop nahi
 
 
 def test_unrelated_database_error_is_not_retried():

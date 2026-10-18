@@ -1,4 +1,4 @@
-"""Live routing smoke test. Run: python -m eval.smoke (or run.bat smoke). Needs Snowflake and Gemma."""
+"""Live routing smoke test. Chalao: python -m eval.smoke (ya run.bat smoke). Snowflake aur Gemma chahiye."""
 import sys
 from pathlib import Path
 
@@ -18,7 +18,7 @@ def main() -> int:
     try:
         agent = Agent(conn, load_config())
         for case in cases:
-            agent.history.clear()  # cases are independent
+            agent.history.clear()  # cases ek dusre par depend nahi karte
             a = agent.ask(case["question"])
             ok = a.status in ACCEPTED[case["expect"]]
             extra = f" | query id {a.query_id}" if a.query_id else ""

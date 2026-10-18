@@ -1,13 +1,13 @@
-"""Checks that a model-written explanation only states numbers that really appear in the evidence.
-Idea adapted from the teammate AI-module handoff (MIT), extended for thousands separators and rounding."""
+"""Check karta hai ki model ke likhe explanation me sirf wahi numbers hain jo evidence me sach me hain.
+Idea teammate ke AI-module handoff (MIT) se liya hai, aur thousands separators aur rounding ke liye badhaya hai."""
 import re
 
-# A number ends at a word character or at ",digit"/".digit" (so "7,012,696.48." is one number, not "7,012").
+# Number kisi word character par ya ",digit"/".digit" par khatam hota hai (toh "7,012,696.48." ek hi number hai, "7,012" nahi).
 _NUM = re.compile(r"(?<![\w.])-?\d[\d,]*(?:\.\d+)?(?!\w|[.,]\d)")
 
 
 def _numbers(text: str) -> list[tuple[float, int]]:
-    """(value, decimal places) for every number in the text; thousands separators are ignored."""
+    """Text ke har number ke liye (value, decimal places); thousands separators ignore hote hain."""
     out = []
     for token in _NUM.findall(text):
         clean = token.replace(",", "")
@@ -19,13 +19,13 @@ def _numbers(text: str) -> list[tuple[float, int]]:
 
 
 def numbers_grounded(explanation: str, question: str, sql: str, assumptions: list[str], rows: list[tuple]) -> bool:
-    """True if every number in the explanation is in the question, SQL, assumptions or rows
-    (an explanation may round a row value, e.g. 10.5876 -> 10.59, or number a list 1..n)."""
+    """True agar explanation ka har number question, SQL, assumptions ya rows me hai
+    (explanation kisi row value ko round kar sakta hai, jaise 10.5876 -> 10.59, ya list ko 1..n number de sakta hai)."""
     evidence = [question, sql, " ".join(assumptions)]
     for row in rows:
         evidence.extend(str(cell) for cell in row)
     allowed = {value for text in evidence for value, _ in _numbers(text)}
-    allowed |= {float(n) for n in range(0, len(rows) + 1)}  # row count and list numbering
+    allowed |= {float(n) for n in range(0, len(rows) + 1)}  # row count aur list numbering
     for value, places in _numbers(explanation):
         if not any(abs(round(a, places) - value) < 1e-9 for a in allowed):
             return False
@@ -33,7 +33,7 @@ def numbers_grounded(explanation: str, question: str, sql: str, assumptions: lis
 
 
 def evidence_fallback(columns: list[str], rows: list[tuple]) -> str:
-    """Exact-value answer built from the first row, used when the model's prose cannot be verified."""
+    """Pehli row se bana exact-value jawab, jab model ke text ko verify nahi kiya ja sakta."""
     first = ", ".join(f"{c}: {v}" for c, v in zip(columns, rows[0]))
     if len(rows) > 1:
         return f"The answer is shown in the Snowflake result rows. Snowflake returned {len(rows)} result rows; the first row is {first}."

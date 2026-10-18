@@ -1,12 +1,12 @@
-"""Loads datasets that have a `load:` block in datasets.yaml into Snowflake (run once, uses the loader role).
+"""Jin datasets me datasets.yaml ka `load:` block hai unko Snowflake me load karta hai (ek baar chalao, loader role use hota hai).
 
-One database per source (database and schema come from each dataset in datasets.yaml, for example UCI.PUBLIC and
-OWID.PUBLIC). setup.sql creates the databases and makes DM_LOADER the owner of their PUBLIC schema; this script then grants
-the read-only role USAGE and, after each load, SELECT.
+Har source ka apna database hai (database aur schema datasets.yaml ke har dataset se aate hain, jaise UCI.PUBLIC aur
+OWID.PUBLIC). setup.sql databases banata hai aur PUBLIC schema ka owner DM_LOADER ko banata hai; yeh script phir
+read-only role ko USAGE deti hai aur har load ke baad SELECT.
 
-`load:` is one recipe or a list of recipes (one per table). Recipe types:
-  uci   uci_id, table, optional rename {OLD: NEW}   (UCI Machine Learning Repository via ucimlrepo)
-  csv   url, table, optional rename {OLD: NEW}      (any public CSV, for example an Our World in Data indicator)
+`load:` ya toh ek recipe hota hai ya recipes ki list (har table ke liye ek). Recipe ke types:
+  uci   uci_id, table, optional rename {OLD: NEW}   (UCI Machine Learning Repository, ucimlrepo se)
+  csv   url, table, optional rename {OLD: NEW}      (koi bhi public CSV, jaise Our World in Data ka indicator)
 """
 import os
 
@@ -38,7 +38,7 @@ def recipes(load) -> list[dict]:
 
 
 def prepare_schema(conn, database: str, schema: str, reader: str) -> None:
-    """Creates the source schema if it is missing and lets the read-only role use it. Its tables are granted after loading."""
+    """Source schema agar nahi hai toh bana deta hai aur read-only role ko use karne deta hai. Uski tables load ke baad grant hoti hain."""
     target = f"{database}.{schema}"
     run_query(conn, f"CREATE SCHEMA IF NOT EXISTS {target}")
     run_query(conn, f"GRANT USAGE ON SCHEMA {target} TO ROLE {reader}")

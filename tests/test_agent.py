@@ -1,4 +1,4 @@
-"""Workflow tests with a fake model and a fake Snowflake (no network). Live runs are in eval/smoke.py."""
+"""Fake model aur fake Snowflake ke saath workflow tests (network nahi). Live runs eval/smoke.py me hain."""
 import pytest
 
 from datamind import agent as agent_mod
@@ -65,7 +65,7 @@ def test_clarify_and_unsupported_never_touch_snowflake(make):
 
 
 def test_empty_question_asks_for_input_and_too_long_is_refused_without_any_model_call(make):
-    f = Fakes([])  # any model call would pop from an empty list and fail the test
+    f = Fakes([])  # koi bhi model call khaali list se pop karegi aur test fail ho jayega
     ag = make(f)
     assert ag.ask("   ").status == "clarify"
     long = ag.ask("x" * 1001)
@@ -80,7 +80,7 @@ def test_write_sql_is_refused_not_executed(make):
 
 
 def test_invalid_sql_gets_one_repair_attempt(make):
-    f = Fakes([q("SELECT COUNT(*) FROM ORDERS"), q(COUNT_SQL)])  # first: unqualified table (retryable)
+    f = Fakes([q("SELECT COUNT(*) FROM ORDERS"), q(COUNT_SQL)])  # pehla: unqualified table (retryable)
     a = make(f).ask("How many orders?")
     assert a.status == "answered" and len(f.executed) == 1
 

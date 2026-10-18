@@ -1,4 +1,4 @@
-"""Ask one question from the terminal. Run: python -m datamind.cli "your question"  (or: run.bat ask "...")"""
+"""Terminal se ek question poochho. Chalao: python -m datamind.cli "your question"  (ya: run.bat ask "...")"""
 import sys
 
 from .agent import Agent

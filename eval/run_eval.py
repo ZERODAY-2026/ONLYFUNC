@@ -1,9 +1,9 @@
-"""Ground-truth evaluation against the real stack. Run: python -m eval.run_eval  (or: run.bat eval)
+"""Asli stack par ground-truth evaluation. Chalao: python -m eval.run_eval  (ya: run.bat eval)
 
-  --only c01,j02     run only these case ids         --category ranking   run only one category
-  --truth-only       print the truth rows and exit (use this to sanity-check a new case)
-  --min-pass 0.8     exit non-zero if the pass rate is lower
-Writes eval/results/latest.json and latest.md (evidence for the submission)."""
+  --only c01,j02     sirf yeh case ids chalao         --category ranking   sirf ek category chalao
+  --truth-only       truth rows print karke ruk jao (naye case ko check karne ke liye)
+  --min-pass 0.8     pass rate isse kam ho toh non-zero exit
+eval/results/latest.json aur latest.md likhta hai (submission ka evidence)."""
 import argparse
 import json
 import sys
@@ -34,7 +34,7 @@ def fill(sql: str) -> str:
 
 
 def judge(case: dict, final, conn) -> tuple[bool, str, list]:
-    """Returns (passed, reason, truth_rows)."""
+    """(passed, reason, truth_rows) lautata hai."""
     expect = case.get("expect", "query")
     if expect == "refuse":
         return final.status in REFUSED, f"status {final.status}" if final.status not in REFUSED else "", []
@@ -65,7 +65,7 @@ def run_case(agent: Agent, conn, case: dict) -> dict:
             answer_sql=final.executed_sql or final.sql, truth_sql=fill(case.get("truth", "")).strip(),
             answer_rows=[list(map(str, r)) for r in final.rows[:5]], truth_rows=[list(map(str, r)) for r in truth_rows[:5]],
             assumptions=final.assumptions, warnings=final.warnings, message=final.message)
-    except Exception as e:  # a crash must be recorded as a failure with the cause, never hidden
+    except Exception as e:  # crash ko failure ki tarah wajah ke saath record karna hai, kabhi chhupana nahi
         log.exception("eval case %s crashed", case["id"])
         record.update(verdict="FAIL", reason=f"crashed: {type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}", status="crash")
     record["seconds"] = round(time.time() - started, 1)

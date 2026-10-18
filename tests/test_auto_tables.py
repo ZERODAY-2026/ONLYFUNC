@@ -1,4 +1,4 @@
-"""`tables: auto`: tables come from Snowflake, not from datasets.yaml (offline, with a fake Snowflake)."""
+"""`tables: auto`: tables Snowflake se aati hain, datasets.yaml se nahi (offline, fake Snowflake ke saath)."""
 import pytest
 
 from datamind import catalog
@@ -20,7 +20,7 @@ def fake_schema(monkeypatch, tables: list[str]):
 
     def fake_run_query(conn, sql):
         seen.append(sql)
-        if "INFORMATION_SCHEMA.COLUMNS" in sql:  # describe_schema: one column per table that is asked for
+        if "INFORMATION_SCHEMA.COLUMNS" in sql:  # describe_schema: jo table maangi jaaye uska ek column
             asked = [t for t in tables if f"'{t}'" in sql]
             return QueryResult(columns=["T", "C", "D", "N"], rows=[(t, "ID", "NUMBER", 1234) for t in asked], query_id="q")
         return QueryResult(columns=["TABLE_NAME"], rows=[(t,) for t in tables], query_id="q")
@@ -41,7 +41,7 @@ def test_a_wrong_tables_word_is_rejected():
 
 def test_real_config_lists_its_datasets_explicitly():
     cfg = load_config()
-    assert not any(d.auto for d in cfg.datasets)      # auto discovery is available but not switched on
+    assert not any(d.auto for d in cfg.datasets)      # auto discovery available hai par on nahi hai
     assert {d.name for d in cfg.datasets} >= {"tpch", "wine_quality", "owid", "bank_marketing", "student_performance"}
     assert ("UCI", "PUBLIC", "WINE_QUALITY") in cfg.allowed_tables()
 
@@ -67,12 +67,12 @@ def test_discovery_is_refreshable_new_appear_dropped_vanish(monkeypatch):
 def test_validator_allowlist_follows_discovery(monkeypatch):
     cfg = make_cfg()
     sql = f"SELECT COUNT(*) FROM {D}.NEW_B"
-    with pytest.raises(ValidationError):      # unknown before discovery
+    with pytest.raises(ValidationError):      # discovery se pehle unknown
         validate(sql, cfg)
     fake_schema(monkeypatch, ["NEW_B"])
     catalog.discover_tables(None, cfg)
     assert validate(sql, cfg).tables == [f"{D}.NEW_B"]
-    fake_schema(monkeypatch, [])              # table dropped, then re-scanned
+    fake_schema(monkeypatch, [])              # table drop hui, phir re-scan
     catalog.discover_tables(None, cfg)
     with pytest.raises(ValidationError):
         validate(sql, cfg)
@@ -80,7 +80,7 @@ def test_validator_allowlist_follows_discovery(monkeypatch):
 
 def test_describe_schema_labels_auto_tables_and_skips_an_empty_auto_dataset(monkeypatch):
     cfg = make_cfg()
-    fake_schema(monkeypatch, ["KNOWN_A"])     # nothing new: the auto dataset adds no heading
+    fake_schema(monkeypatch, ["KNOWN_A"])     # kuch naya nahi: auto dataset koi heading nahi jodta
     assert "Dataset 'rest'" not in catalog.describe_schema(None, cfg)
     fake_schema(monkeypatch, ["KNOWN_A", "NEW_B"])
     text = catalog.describe_schema(None, cfg)

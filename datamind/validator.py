@@ -1,5 +1,5 @@
-"""Read-only SQL guardrail. Everything Gemma writes must pass this before Snowflake sees it.
-Function and join allowlists adapted from the teammate AI-module handoff (MIT)."""
+"""Read-only SQL guardrail. Gemma jo bhi likhe woh Snowflake tak pahunchne se pehle isse pass hona chahiye.
+Function aur join allowlists teammate ke AI-module handoff (MIT) se liye gaye hain."""
 from dataclasses import dataclass
 
 import sqlglot
@@ -12,12 +12,12 @@ FORBIDDEN = (
     exp.Alter, exp.Command, exp.Copy, exp.TruncateTable, exp.Use, exp.Set,
 )
 
-# Functions a data question reasonably needs. Anything else (SYSTEM$..., GET_DDL, UDFs, CURRENT_*) is refused.
-# Extend per project with `allowed_functions:` in datasets.yaml.
+# Wahi functions jo ek data question ko sach me chahiye. Baaki sab (SYSTEM$..., GET_DDL, UDFs, CURRENT_*) refuse hote hain.
+# Project ke hisaab se datasets.yaml me `allowed_functions:` se badha sakte ho.
 DEFAULT_FUNCTIONS = {
     "SUM", "COUNT", "AVG", "MIN", "MAX", "MEDIAN", "STDDEV", "STDDEV_POP", "STDDEV_SAMP", "VARIANCE", "CORR",
     "ROUND", "FLOOR", "CEIL", "ABS", "COALESCE", "NULLIF", "IFNULL", "NVL", "IFF", "IF", "CASE", "CAST", "TRY_CAST",
-    # sqlglot reports Snowflake's DATE_TRUNC as TIMESTAMP_TRUNC, DATEADD as DATE_ADD and TO_DATE as TS_OR_DS_TO_DATE
+    # sqlglot Snowflake ke DATE_TRUNC ko TIMESTAMP_TRUNC, DATEADD ko DATE_ADD aur TO_DATE ko TS_OR_DS_TO_DATE batata hai
     "YEAR", "MONTH", "DAY", "QUARTER", "DATE_TRUNC", "TIMESTAMP_TRUNC", "EXTRACT", "DATEADD", "DATE_ADD",
     "DATEDIFF", "DATE_DIFF", "TO_DATE", "TS_OR_DS_TO_DATE",
     "LOWER", "UPPER", "TRIM", "LENGTH", "SUBSTR", "SUBSTRING", "CONCAT",
@@ -28,13 +28,13 @@ DEFAULT_FUNCTIONS = {
 class ValidationError(Exception):
     def __init__(self, message: str, retryable: bool = False):
         super().__init__(message)
-        self.retryable = retryable  # True: a slip Gemma can fix; False: refuse outright
+        self.retryable = retryable  # True: aisi galti jo Gemma theek kar sakta hai; False: seedha refuse
 
 
 @dataclass
 class Validated:
     sql: str
-    tables: list[str]  # fully qualified tables the query reads
+    tables: list[str]  # query jo fully qualified tables padhti hai
 
 
 def validate(sql: str, cfg: Config, max_rows: int | None = None) -> Validated:
@@ -75,11 +75,11 @@ def validate(sql: str, cfg: Config, max_rows: int | None = None) -> Validated:
         if isinstance(fn, (exp.And, exp.Or, exp.Not)):
             continue
         if fn.sql_name().upper() not in permitted:
-            name = fn.name if isinstance(fn, exp.Anonymous) else fn.sql_name()  # unknown functions are "ANONYMOUS"
+            name = fn.name if isinstance(fn, exp.Anonymous) else fn.sql_name()  # unknown functions "ANONYMOUS" hote hain
             raise ValidationError(f"Function {name} is not allowed.", retryable=True)
 
     opaque = cte_names | {s.alias.upper() for s in tree.find_all(exp.Subquery) if s.alias}
-    # `FROM some_cte AS c`: the alias c also names a CTE, so its columns cannot be traced to a base table here either.
+    # `FROM some_cte AS c`: alias c bhi ek CTE ka naam hai, toh uske columns bhi yahan kisi base table se trace nahi ho sakte.
     opaque |= {t.alias.upper() for t in tree.find_all(exp.Table) if t.alias and not t.db and t.name.upper() in cte_names}
     _check_joins(tree, alias_map, opaque, cfg)
 
@@ -89,9 +89,9 @@ def validate(sql: str, cfg: Config, max_rows: int | None = None) -> Validated:
 
 
 def _check_joins(tree: exp.Expression, alias_map: dict[str, Table], opaque: set[str], cfg: Config) -> None:
-    """Joins must have an ON condition; equalities touching a dataset that declares joins must be approved ones.
-    Columns of a CTE or derived table (`opaque`) cannot be traced to a base table here; the base tables inside
-    them are validated on their own."""
+    """Joins me ON condition hona chahiye; jo equalities joins declare karne wale dataset ko chhuti hain woh approved honi chahiye.
+    CTE ya derived table (`opaque`) ke columns yahan base table se trace nahi ho sakte; unke andar ki base tables
+    alag se validate hoti hain."""
     pairs, constrained = cfg.join_rules()
     for join in tree.find_all(exp.Join):
         on = join.args.get("on")
@@ -103,7 +103,7 @@ def _check_joins(tree: exp.Expression, alias_map: dict[str, Table], opaque: set[
             raise ValidationError("A JOIN must compare key columns of the two tables.", retryable=True)
         for cond in column_equalities:
             if any(c.table and c.table.upper() in opaque for c in (cond.left, cond.right)):
-                continue  # touches a CTE/derived table; cannot be traced to a base column here
+                continue  # CTE/derived table ko chhuta hai; yahan base column tak trace nahi ho sakta
             sides = []
             for col in (cond.left, cond.right):
                 table = alias_map.get(col.table.upper()) if col.table else None

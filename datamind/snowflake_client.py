@@ -1,4 +1,4 @@
-"""All data access goes through Snowflake. Nothing is answered from local files."""
+"""Saara data access Snowflake se hota hai. Kuch bhi local files se answer nahi hota."""
 import os
 from dataclasses import dataclass
 
@@ -22,7 +22,7 @@ def connect(role_var: str = "SNOWFLAKE_READER_ROLE"):
         warehouse=env("SNOWFLAKE_WAREHOUSE", "DM_WH"),
         role=env(role_var),
     )
-    key_file = os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH")  # key-pair login: no password, token or network policy
+    key_file = os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH")  # key-pair login: na password, na token, na network policy
     pat = os.getenv("SNOWFLAKE_PAT")  # programmatic access token
     if key_file:
         kwargs["private_key_file"] = key_file
@@ -30,10 +30,10 @@ def connect(role_var: str = "SNOWFLAKE_READER_ROLE"):
         kwargs.update(authenticator="PROGRAMMATIC_ACCESS_TOKEN", token=pat)
     else:
         kwargs["password"] = env("SNOWFLAKE_PASSWORD")
-    # Cap runtime of any single statement so a runaway query cannot burn trial credits.
+    # Kisi bhi ek statement ka runtime cap karta hai, taaki runaway query trial credits na jala de.
     timeout = int(os.getenv("DM_STATEMENT_TIMEOUT", "60"))
     kwargs["session_parameters"] = {"STATEMENT_TIMEOUT_IN_SECONDS": timeout}
-    auth = "key-pair" if key_file else ("access token" if pat else "password")  # the method only, never the secret
+    auth = "key-pair" if key_file else ("access token" if pat else "password")  # sirf method, secret kabhi nahi
     trace.install_network_trace()
     with trace.span("SNOWFLAKE", f"connect account={kwargs['account']} user={kwargs['user']} role={kwargs['role']} "
                                   f"warehouse={kwargs['warehouse']} auth={auth} statement_timeout={timeout}s") as info:

@@ -1,6 +1,6 @@
-"""Prompt templates for Gemma. No logic here, so prompts can be tuned without touching the workflow.
-Dataset-specific rules (metric definitions, joins, examples) come from datasets.yaml, not from this file.
-Several rules are adapted from the teammate AI-module handoff (MIT)."""
+"""Gemma ke prompt templates. Yahan koi logic nahi hai, taaki workflow ko chhue bina prompts tune ho sakein.
+Dataset-specific rules (metric definitions, joins, examples) datasets.yaml se aate hain, is file se nahi.
+Kuch rules teammate ke AI-module handoff (MIT) se liye gaye hain."""
 
 SQL_SYSTEM = """You translate questions into Snowflake SQL. You never answer from your own knowledge.
 Available tables (always use the fully qualified DATABASE.SCHEMA.TABLE names):

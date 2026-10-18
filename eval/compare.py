@@ -1,13 +1,13 @@
-"""Compares an answer's result rows with the ground-truth rows. Pure functions, no Snowflake or model needed."""
+"""Answer ki result rows ko ground-truth rows se compare karta hai. Pure functions, Snowflake ya model ki zarurat nahi."""
 from datetime import date, datetime
 from decimal import Decimal
 
 REL_TOL = 1e-6
-ABS_TOL = 0.01  # accepts ROUND(x, 2) in the answer
+ABS_TOL = 0.01  # answer me ROUND(x, 2) chalega
 
 
 def norm(v):
-    """Make Snowflake values comparable: numbers -> float, dates -> ISO text, text -> trimmed lowercase."""
+    """Snowflake values ko comparable banata hai: numbers -> float, dates -> ISO text, text -> trim karke lowercase."""
     if isinstance(v, bool) or v is None:
         return v
     if isinstance(v, (int, float, Decimal)):
@@ -24,7 +24,7 @@ def close(a, b) -> bool:
 
 
 def row_covers(truth_row, answer_row) -> bool:
-    """Every value of the truth row appears in a distinct cell of the answer row (extra answer columns are fine)."""
+    """Truth row ki har value answer row ke alag cell me milti hai (answer me extra columns chalte hain)."""
     remaining = [norm(c) for c in answer_row]
     for value in map(norm, truth_row):
         for i, cell in enumerate(remaining):
@@ -37,7 +37,7 @@ def row_covers(truth_row, answer_row) -> bool:
 
 
 def match(truth_rows, answer_rows, mode: str = "rows", ordered: bool = False) -> tuple[bool, str]:
-    """Returns (ok, reason). mode: scalar | rows | contains."""
+    """(ok, reason) lautata hai. mode: scalar | rows | contains."""
     if mode == "scalar":
         if len(truth_rows) != 1 or len(truth_rows[0]) != 1:
             return False, "truth for a scalar case must be exactly one value"

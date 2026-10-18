@@ -1,6 +1,6 @@
-"""Key-pair login helper. Run: python -m datamind.keys  (or: run.bat keygen)
+"""Key-pair login helper. Chalao: python -m datamind.keys  (ya: run.bat keygen)
 
-Creates a private key once, records its path in .env, and prints the SQL that registers the public key in Snowflake."""
+Ek baar private key banata hai, uska path .env me likhta hai, aur woh SQL print karta hai jo public key ko Snowflake me register karta hai."""
 import base64
 import sys
 

@@ -1,12 +1,12 @@
-"""Snowflake executor: the callable the AI layer hands validated SQL to.
+"""Snowflake executor: woh callable jisko AI layer validated SQL deti hai.
 
-Contract (matches the teammate's `agent.ask(question, executor)`):
+Contract (teammate ke `agent.ask(question, executor)` se match karta hai):
     executor(sql) -> {"rows": [{COLUMN: value, ...}, ...], "columns": [...], "query_id": "...", "truncated": bool}
 
-Behaviour:
-- Only SELECT / WITH statements run (defence in depth; the app role is read-only too).
-- SQL errors (ProgrammingError) are raised unchanged so the caller can repair the SQL.
-- An expired or lost session is re-opened once and the query retried; a second failure is raised.
+Kaise kaam karta hai:
+- Sirf SELECT / WITH statements chalte hain (double safety; app ka role bhi read-only hai).
+- SQL errors (ProgrammingError) jaise ke taise raise hote hain, taaki caller SQL theek kar sake.
+- Session expire ya lost ho jaaye toh ek baar dobara khulta hai aur query retry hoti hai; dusri baar fail ho toh error raise hota hai.
 """
 import re
 
@@ -17,12 +17,12 @@ from .snowflake_client import connect
 
 log = get_logger()
 
-SESSION_ERRNOS = {390111, 390114}  # session no longer exists / authentication token expired
+SESSION_ERRNOS = {390111, 390114}  # session ab exist nahi karta / authentication token expire ho gaya
 _READ_ONLY = re.compile(r"^\s*(SELECT|WITH)\b", re.IGNORECASE)
 
 
 def _unique(names: list[str]) -> list[str]:
-    """Column names usable as dict keys: a repeated name gets _2, _3 ... instead of silently overwriting."""
+    """Dict keys ke liye column names: repeated naam ko _2, _3 ... mil jaata hai, chupchaap overwrite nahi hota."""
     seen: dict[str, int] = {}
     out = []
     for name in names:
@@ -43,7 +43,7 @@ class SnowflakeExecutor:
             try:
                 return self._execute(sql)
             except sf_errors.ProgrammingError:
-                raise  # a SQL problem, not a connection problem: never retried here
+                raise  # yeh SQL ki problem hai, connection ki nahi: yahan kabhi retry nahi hota
             except (sf_errors.OperationalError, sf_errors.DatabaseError) as e:
                 lost = isinstance(e, sf_errors.OperationalError) or getattr(e, "errno", None) in SESSION_ERRNOS
                 if attempt == 2 or not lost:
@@ -75,7 +75,7 @@ class SnowflakeExecutor:
         if conn is not None:
             try:
                 conn.close()
-            except Exception:  # closing a dead session may fail; nothing more to do, but keep the trace
+            except Exception:  # dead session band karte waqt fail ho sakta hai; aur kuch karna nahi, bas trace rakho
                 log.exception("Error while closing the Snowflake connection")
 
     def __enter__(self):
@@ -86,5 +86,5 @@ class SnowflakeExecutor:
 
 
 def make_executor(**kwargs) -> SnowflakeExecutor:
-    """executor = make_executor(); result = executor("SELECT ..."); executor.close() when finished."""
+    """executor = make_executor(); result = executor("SELECT ..."); kaam khatam hone par executor.close()."""
     return SnowflakeExecutor(**kwargs)

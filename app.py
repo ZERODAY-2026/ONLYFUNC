@@ -21,9 +21,9 @@ def get_agent() -> Agent:
 
 try:
     agent = get_agent()
-except Exception as e:  # missing .env, Snowflake unreachable, etc.
+except Exception as e:  # .env missing hai, Snowflake reachable nahi hai, waghera
     get_logger().exception("App failed to start")
-    # Show config problems (clear, safe text); anything else only by type, details stay in logs/datamind.log.
+    # Config ki problem saaf aur safe text me dikhao; baaki sab sirf type se, details logs/datamind.log me rehti hain.
     st.error(f"Could not start: {e}" if isinstance(e, RuntimeError) else f"Could not start ({type(e).__name__}). See logs/datamind.log, or run: run.bat check")
     st.stop()
 

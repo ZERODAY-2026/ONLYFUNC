@@ -1,5 +1,5 @@
-"""Schema catalog: live table/column names from Snowflake, enriched with the meanings, joins, metrics and
-examples declared in datasets.yaml, so prompts always match reality and the business definitions."""
+"""Schema catalog: Snowflake se live table/column names, aur unke saath datasets.yaml ke meanings, joins, metrics aur
+examples, taaki prompts hamesha asli schema aur business definitions se match karein."""
 import json
 
 from . import trace
@@ -8,9 +8,9 @@ from .snowflake_client import run_query
 
 
 def discover_tables(conn, cfg: Config) -> None:
-    """Fills in the tables of every `tables: auto` dataset from what the connected role can see in its schema.
-    Tables that another dataset in the same schema already lists are left to that dataset (it keeps its meanings,
-    metrics and joins). Safe to call again: it recomputes the list, so new tables appear and dropped ones vanish."""
+    """Har `tables: auto` dataset ki tables wahi bharta hai jo connected role apne schema me dekh sakta hai.
+    Jo tables usi schema ke kisi dusre dataset me already listed hain woh us dataset ke paas hi rehti hain (uske meanings,
+    metrics aur joins bache rehte hain). Dobara call karna safe hai: list phir se banti hai, toh nayi tables aa jaati hain aur hataayi gayi gayab ho jaati hain."""
     for d in cfg.datasets:
         if not d.auto:
             continue
@@ -28,7 +28,7 @@ def describe_schema(conn, cfg: Config) -> str:
     lines = []
     for d in cfg.datasets:
         if not d.tables:
-            continue  # an auto dataset that currently finds nothing new
+            continue  # auto dataset ko abhi kuch naya nahi mila
         lines.append(f"-- Dataset '{d.name}': {d.description}")
         if d.scope:
             lines.append(f"Scope: {d.scope}")
@@ -59,7 +59,7 @@ def describe_schema(conn, cfg: Config) -> str:
 
 
 def describe_examples(cfg: Config) -> str:
-    """Few-shot examples from datasets.yaml, rendered as the JSON replies the model must produce."""
+    """datasets.yaml ke few-shot examples, un JSON replies ki shakal me jo model ko deni hain."""
     out = []
     for d in cfg.datasets:
         for ex in d.examples:
@@ -74,7 +74,7 @@ def describe_examples(cfg: Config) -> str:
 
 
 def missing_tables(conn, cfg: Config) -> list[str]:
-    """Configured tables the current role cannot see (not loaded yet, or no grant)."""
+    """Configured tables jo current role ko nahi dikhti (ya toh abhi load nahi hui, ya grant nahi hai)."""
     missing = []
     for d in cfg.datasets:
         res = run_query(conn, f"""

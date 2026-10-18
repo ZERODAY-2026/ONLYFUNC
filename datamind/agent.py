@@ -1,4 +1,4 @@
-"""Workflow: question -> Gemma writes SQL -> validator -> Snowflake runs it -> Gemma explains the returned rows."""
+"""Workflow: question -> Gemma SQL likhta hai -> validator -> Snowflake chalata hai -> Gemma wapas aayi rows ko explain karta hai."""
 import json
 import time
 
@@ -17,7 +17,7 @@ from .validator import ValidationError, validate
 
 __all__ = ["Agent", "Answer"]
 
-EXPLAIN_ROWS = 50  # rows shown to the model for the explanation
+EXPLAIN_ROWS = 50  # explanation ke liye model ko itni rows dikhai jaati hain
 MAX_QUESTION_CHARS = 1000
 log = get_logger()
 
@@ -26,18 +26,18 @@ class Agent:
     def __init__(self, conn, cfg: Config):
         self.conn, self.cfg = conn, cfg
         self.system = self._build_system()
-        self.history: list[tuple[str, str]] = []  # (question, sql) for follow-ups
+        self.history: list[tuple[str, str]] = []  # follow-up questions ke liye (question, sql)
 
     def _build_system(self) -> str:
         examples = describe_examples(self.cfg)
-        schema = describe_schema(self.conn, self.cfg)  # also re-discovers `tables: auto` datasets
+        schema = describe_schema(self.conn, self.cfg)  # `tables: auto` wale datasets ko bhi dobara discover karta hai
         system = SQL_SYSTEM.format(schema=schema, examples=f"\nExamples:\n{examples}" if examples else "")
         trace.emit("SCHEMA", f"prompt built from live Snowflake columns: schema text {len(schema)} chars, few-shot examples {len(examples)} chars, "
                             f"system prompt {len(system)} chars, {len(self.cfg.datasets)} datasets, {len(self.cfg.allowed_tables())} allowed tables")
         return system
 
     def refresh_tables(self) -> None:
-        """Re-reads the live schema (new or dropped tables) without restarting; the validator allowlist follows."""
+        """Live schema dobara padhta hai (nayi ya hataayi gayi tables) bina restart kiye; validator ki allowlist bhi saath me update ho jaati hai."""
         self.system = self._build_system()
 
     def _context(self, question: str, error: str = "", prev_sql: str = "") -> str:
@@ -67,7 +67,7 @@ class Agent:
 
     def _ask(self, question: str) -> Answer:
         plan = llm.chat_json(self.system, self._context(question))
-        for attempt in range(2):  # one repair attempt
+        for attempt in range(2):  # ek repair attempt
             action = plan.get("action")
             trace.emit("PLAN", f"attempt {attempt + 1}: Gemma chose action={action!r}, sql={len(plan.get('sql') or '')} chars, "
                               f"assumptions={len(plan.get('assumptions') or [])}" + (f", message: {trace.short(plan.get('message'), 120)}" if plan.get('message') else ""))

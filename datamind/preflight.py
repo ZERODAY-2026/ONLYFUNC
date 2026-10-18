@@ -1,7 +1,7 @@
-"""Pre-flight checks. Run: python -m datamind.preflight [--no-llm]
+"""Pre-flight checks. Chalao: python -m datamind.preflight [--no-llm]
 
-Exit codes: 0 = ready, 2 = ready except configured tables are not loaded yet (run.bat loads them), 1 = problem.
-Prints plain [ok]/[warn]/[FAIL] lines and exact fixes; never prints secrets.
+Exit codes: 0 = ready, 2 = ready, bas configured tables abhi load nahi hui (run.bat load kar deta hai), 1 = problem.
+Seedhe [ok]/[warn]/[FAIL] lines print karta hai aur exact fix batata hai; secrets kabhi print nahi karta.
 """
 import os
 import sys
@@ -67,7 +67,7 @@ def check_snowflake() -> int:
                 say("ok", f"dataset {d.name}: {len(present)}/{len(d.tables)} tables readable ({present[0]}: {n} rows)")
         if missing:
             say("warn", f"tables not found: {', '.join(missing)}")
-            # Fixable automatically only if every missing table belongs to a dataset that has a `load:` recipe.
+            # Apne aap tabhi theek ho sakta hai jab har missing table aise dataset ki ho jisme `load:` recipe hai.
             loadable = {f"{d.database}.{d.schema}.{t}".upper() for d in cfg.datasets if d.load for t in d.tables}
             return 2 if all(m.upper() in loadable for m in missing) else 1
         return 0

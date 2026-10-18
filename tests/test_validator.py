@@ -26,12 +26,12 @@ def test_existing_limit_kept():
 def test_cte_and_approved_join_ok():
     sql = (f"WITH c AS (SELECT C_CUSTKEY FROM {T}.CUSTOMER) "
            f"SELECT COUNT(*) FROM {T}.ORDERS o JOIN c ON o.O_CUSTKEY = c.C_CUSTKEY")
-    # the CTE hides the real table from the join check, but the join itself is on approved key names
+    # CTE asli table ko join check se chhupa deta hai, par join khud approved key names par hai
     assert len(ok(sql).tables) == 2
 
 
 def test_aliased_cte_references_ok():
-    """`FROM some_cte AS c` joins on columns of the CTE (found live: a before/after comparison of two CTEs)."""
+    """`FROM some_cte AS c` CTE ke columns par join karta hai (live me mila: do CTEs ka before/after comparison)."""
     D = "OWID.PUBLIC"
     sql = (f"WITH a AS (SELECT ENTITY, LIFE_EXPECTANCY FROM {D}.LIFE_EXPECTANCY WHERE YEAR = 1990), "
            f"b AS (SELECT ENTITY, LIFE_EXPECTANCY FROM {D}.LIFE_EXPECTANCY WHERE YEAR = 2020) "
@@ -40,7 +40,7 @@ def test_aliased_cte_references_ok():
 
 
 @pytest.mark.parametrize("sql", [
-    # queries the model has actually written, or the handoff's golden cases
+    # queries jo model ne asal me likhi hain, ya handoff ke golden cases
     f"SELECT c.C_NAME, n.N_NAME, SUM(o.O_TOTALPRICE) AS T FROM {T}.CUSTOMER AS c JOIN {T}.ORDERS AS o ON c.C_CUSTKEY = o.O_CUSTKEY JOIN {T}.NATION AS n ON c.C_NATIONKEY = n.N_NATIONKEY GROUP BY c.C_NAME, n.N_NAME ORDER BY T DESC LIMIT 5",
     f"SELECT r.R_NAME, COUNT(c.C_CUSTKEY) FROM {T}.REGION r JOIN {T}.NATION n ON r.R_REGIONKEY = n.N_REGIONKEY JOIN {T}.CUSTOMER c ON n.N_NATIONKEY = c.C_NATIONKEY GROUP BY r.R_NAME",
     f"SELECT QUALITY, AVG(ALCOHOL) FROM {W} GROUP BY QUALITY",
@@ -94,14 +94,14 @@ def test_unapproved_functions_rejected(sql):
 
 
 @pytest.mark.parametrize("sql", [
-    # wrong key pair: customer key compared with order key
+    # galat key pair: customer key ko order key se compare kiya
     f"SELECT COUNT(*) FROM {T}.CUSTOMER C JOIN {T}.ORDERS O ON C.C_CUSTKEY = O.O_ORDERKEY",
-    # join without ON, and ON that is not a key comparison
+    # bina ON ka join, aur aisa ON jo key comparison nahi hai
     f"SELECT COUNT(*) FROM {T}.CUSTOMER C JOIN {T}.ORDERS O",
     f"SELECT COUNT(*) FROM {T}.CUSTOMER C JOIN {T}.ORDERS O ON 1 = 1",
     # comma join (implicit cross join)
     f"SELECT COUNT(*) FROM {T}.CUSTOMER C, {T}.ORDERS O",
-    # joining two datasets that declare no relationship
+    # do datasets jinke beech koi relationship declare nahi hai ko join karna
     f"SELECT COUNT(*) FROM {T}.ORDERS O JOIN {W} W ON O.O_ORDERKEY = W.QUALITY",
 ])
 def test_unapproved_joins_rejected(sql):

@@ -1,5 +1,5 @@
 import os
 import tempfile
 
-# Keep test noise (fake query ids, simulated outages) out of the real logs/datamind.log.
+# Test ka shor (fake query ids, simulated outages) asli logs/datamind.log se bahar rakho.
 os.environ["DATAMIND_LOG_DIR"] = tempfile.mkdtemp(prefix="datamind-test-logs-")

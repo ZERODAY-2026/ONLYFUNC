@@ -1,4 +1,4 @@
-"""The live trace (run.bat console): quiet by default, reports sizes and timings, never prints secrets."""
+"""Live trace (run.bat console): default me chup, sizes aur timings batata hai, secrets kabhi print nahi karta."""
 import httpx
 import pytest
 

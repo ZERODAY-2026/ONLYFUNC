@@ -1,8 +1,8 @@
-"""Live trace: one console line per connection, network call, SQL statement, model call and workflow step.
+"""Live trace: har connection, network call, SQL statement, model call aur workflow step ke liye console par ek line.
 
-Switched by DM_TRACE (run.bat turns it on; set DM_TRACE=0 to silence it). Lines go to stderr, so they appear in the run.bat
-window as they happen, and are also copied to logs/datamind.log. Nothing here changes behaviour; it only reports what the
-code really did: sizes, row counts, status codes, timings, Snowflake query IDs. Secrets (keys, tokens, passwords) are never printed.
+DM_TRACE se on/off hota hai (run.bat isse on karta hai; DM_TRACE=0 karo toh chup ho jaata hai). Lines stderr par jaati hain, toh run.bat
+window me turant dikhti hain, aur logs/datamind.log me bhi copy hoti hain. Yahan kuch bhi behaviour nahi badalta; bas batata hai ki
+code ne asal me kya kiya: sizes, row counts, status codes, timings, Snowflake query IDs. Secrets (keys, tokens, passwords) kabhi print nahi hote.
 """
 import logging
 import os
@@ -22,7 +22,7 @@ def on() -> bool:
 
 
 def short(text, limit: int = 160) -> str:
-    """One line, whitespace collapsed, cut with the true length noted: 'SELECT ... (+312 chars)'."""
+    """Ek line, whitespace collapse, asli length likhi hui: 'SELECT ... (+312 chars)'."""
     flat = re.sub(r"\s+", " ", str(text)).strip()
     return flat if len(flat) <= limit else f"{flat[:limit]}... (+{len(flat) - limit} chars)"
 
@@ -36,14 +36,14 @@ def emit(tag: str, message: str) -> None:
     try:
         from .logs import get_logger
         get_logger().info("TRACE %s %s", tag, message)
-    except Exception:  # tracing must never break the app
+    except Exception:  # tracing se app kabhi nahi tootni chahiye
         pass
 
 
 @contextmanager
 def span(tag: str, start: str, quiet_start: bool = False):
-    """Prints `start` now (so slow calls are visible while they run) and the outcome with the elapsed time afterwards.
-    The body fills `info` (a dict) with what it learned, for example rows=3 query_id=...; on an exception the error type is shown."""
+    """`start` abhi print karta hai (taaki slow calls chalte waqt dikhein) aur baad me outcome elapsed time ke saath.
+    Body `info` (ek dict) me jo seekha woh bharti hai, jaise rows=3 query_id=...; exception aaye toh error ka type dikhta hai."""
     info: dict = {}
     began = time.perf_counter()
     if not quiet_start:
@@ -59,9 +59,9 @@ def span(tag: str, start: str, quiet_start: bool = False):
 
 # ---------------------------------------------------------------- network
 class _NetHandler(logging.Handler):
-    """Turns the Snowflake connector's own debug log (logger snowflake.connector) into [NET] lines: every HTTP call it makes
-    (login, query, result-chunk downloads, logout, cloud-metadata probes), response sizes and server round-trip times.
-    Query strings and headers are never shown."""
+    """Snowflake connector ke apne debug log (logger snowflake.connector) ko [NET] lines me badalta hai: uska har HTTP call
+    (login, query, result-chunk downloads, logout, cloud-metadata probes), response sizes aur server round-trip times.
+    Query strings aur headers kabhi nahi dikhaye jaate."""
     _call = re.compile(r"outbound HTTP call method=(\w+)(?: host=(\S+))? path=(\S+?)(?:\?\S*)?(?: attempt=(\d+))?$")
     _resp = re.compile(r"Received HTTP response response_len=(\d+)")
     _query = re.compile(r"Sync query response received elapsed_ms=([\d.]+)")
@@ -88,7 +88,7 @@ _net_installed = False
 
 
 def install_network_trace() -> None:
-    """Hooks the Snowflake connector's log so every request it makes is reported. Idempotent; does nothing unless DM_TRACE is on."""
+    """Snowflake connector ke log ko hook karta hai taaki uski har request report ho. Idempotent hai; DM_TRACE on na ho toh kuch nahi karta."""
     global _net_installed
     if _net_installed or not on():
         return
@@ -99,8 +99,8 @@ def install_network_trace() -> None:
 
 
 def httpx_hooks(label: str) -> dict:
-    """event_hooks for an httpx client (the Ollama client): reports each request and its response status and size.
-    The Authorization header is never read."""
+    """httpx client (Ollama client) ke liye event_hooks: har request aur uska response status aur size report karta hai.
+    Authorization header kabhi padha nahi jaata."""
     starts: dict[int, float] = {}
 
     def on_request(request):
@@ -124,11 +124,11 @@ _SHOWN_VALUES = ("SNOWFLAKE_ACCOUNT", "SNOWFLAKE_USER", "SNOWFLAKE_WAREHOUSE", "
 
 
 def environment_report() -> None:
-    """Prints what the app is actually running on and with. Secret values are never shown, only whether they are set."""
+    """Dikhata hai ki app asal me kis par aur kaise chal rahi hai. Secret values kabhi nahi dikhti, sirf yeh ki set hain ya nahi."""
     import importlib.metadata as md
     import platform
 
-    from .config import ROOT, load_config  # noqa: F401  (importing config also loads .env)
+    from .config import ROOT, load_config  # noqa: F401  (config import karne se .env bhi load ho jaata hai)
 
     emit("ENV", f"Python {platform.python_version()} on {platform.system()} {platform.release()} ({platform.machine()})")
     versions = []
