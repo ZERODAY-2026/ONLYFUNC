@@ -28,7 +28,12 @@ except Exception as e:  # missing .env, Snowflake unreachable, etc.
 with st.sidebar:
     st.subheader("Datasets")
     for d in agent.cfg.datasets:
+        if d.auto and not d.tables:
+            continue
         st.markdown(f"**{d.name}**: {d.description}  \n_Source: {d.source}; licence: {d.licence}_")
+    if st.button("Re-scan tables", help="Pick up tables added to or dropped from Snowflake since the app started"):
+        agent.refresh_tables()
+        st.rerun()
     if st.button("Clear conversation"):
         agent.history.clear()
         st.session_state.pop("log", None)

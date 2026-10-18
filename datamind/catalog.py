@@ -6,12 +6,32 @@ from .config import Config
 from .snowflake_client import run_query
 
 
+def discover_tables(conn, cfg: Config) -> None:
+    """Fills in the tables of every `tables: auto` dataset from what the connected role can see in its schema.
+    Tables that another dataset in the same schema already lists are left to that dataset (it keeps its meanings,
+    metrics and joins). Safe to call again: it recomputes the list, so new tables appear and dropped ones vanish."""
+    for d in cfg.datasets:
+        if not d.auto:
+            continue
+        claimed = {t.upper() for o in cfg.datasets if not o.auto and (o.database.upper(), o.schema.upper()) == (d.database.upper(), d.schema.upper()) for t in o.tables}
+        res = run_query(conn, f"""
+            SELECT table_name FROM {d.database}.INFORMATION_SCHEMA.TABLES
+            WHERE table_schema = '{d.schema.upper()}' AND table_type IN ('BASE TABLE', 'VIEW')
+            ORDER BY table_name""")
+        d.tables = [r[0] for r in res.rows if r[0].upper() not in claimed]
+
+
 def describe_schema(conn, cfg: Config) -> str:
+    discover_tables(conn, cfg)
     lines = []
     for d in cfg.datasets:
+        if not d.tables:
+            continue  # an auto dataset that currently finds nothing new
         lines.append(f"-- Dataset '{d.name}': {d.description}")
         if d.scope:
             lines.append(f"Scope: {d.scope}")
+        if d.auto:
+            lines.append("These tables were discovered automatically: no meanings, joins or metrics are declared. Join only on columns with the same name and meaning, and state your assumptions.")
         res = run_query(conn, f"""
             SELECT table_name, column_name, data_type
             FROM {d.database}.INFORMATION_SCHEMA.COLUMNS

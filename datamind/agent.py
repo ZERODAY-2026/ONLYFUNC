@@ -25,12 +25,19 @@ log = get_logger()
 class Agent:
     def __init__(self, conn, cfg: Config):
         self.conn, self.cfg = conn, cfg
-        examples = describe_examples(cfg)
-        self.system = SQL_SYSTEM.format(
-            schema=describe_schema(conn, cfg),
+        self.system = self._build_system()
+        self.history: list[tuple[str, str]] = []  # (question, sql) for follow-ups
+
+    def _build_system(self) -> str:
+        examples = describe_examples(self.cfg)
+        return SQL_SYSTEM.format(
+            schema=describe_schema(self.conn, self.cfg),  # also re-discovers `tables: auto` datasets
             examples=f"\nExamples:\n{examples}" if examples else "",
         )
-        self.history: list[tuple[str, str]] = []  # (question, sql) for follow-ups
+
+    def refresh_tables(self) -> None:
+        """Re-reads the live schema (new or dropped tables) without restarting; the validator allowlist follows."""
+        self.system = self._build_system()
 
     def _context(self, question: str, error: str = "", prev_sql: str = "") -> str:
         parts = []

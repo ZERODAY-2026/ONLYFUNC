@@ -1,4 +1,8 @@
 # Datasets exposed to the agent. Add a dataset here (no code changes) to query it.
+# Where each source lives in Snowflake (one database per source, tables in its PUBLIC schema; setup.sql creates them):
+#   SNOWFLAKE_SAMPLE_DATA.TPCH_SF1   TPC-H sample, shared by Snowflake, read in place (TPCDS_SF10TCL likewise)
+#   UCI.PUBLIC                       UCI Machine Learning Repository: WINE_QUALITY, BANK_MARKETING, STUDENT_PERFORMANCE
+#   OWID.PUBLIC                      Our World in Data: LIFE_EXPECTANCY, GDP_PER_CAPITA, POPULATION
 # Required per dataset: database, schema, tables.
 # Optional "semantic catalogue" that improves answer correctness (all config, no code):
 #   scope     one sentence about the data's coverage
@@ -18,7 +22,7 @@ datasets:
     database: SNOWFLAKE_SAMPLE_DATA
     schema: TPCH_SF1
     tables: [ORDERS, CUSTOMER, LINEITEM, NATION, REGION, SUPPLIER, PART, PARTSUPP]
-    scope: Historical benchmark orders from 1992 through 1998. Customer geography is used unless supplier geography is requested.
+    scope: Historical benchmark orders from 1992 through 1998. Customer geography is used unless supplier geography is requested. This is the default retail dataset - a question about orders, customers, suppliers, parts or revenue that does not name another dataset is answered from TPC-H, and the assumption must be listed (for example "Used the TPC-H dataset").
     notes:
       CUSTOMER: One row per customer
       ORDERS: One row per order
@@ -72,7 +76,7 @@ datasets:
     description: Physicochemical measurements and quality scores of red and white wines
     source: UCI Machine Learning Repository, id 186
     licence: CC BY 4.0
-    database: DATAMIND
+    database: UCI
     schema: PUBLIC
     tables: [WINE_QUALITY]
     scope: 6,497 Portuguese Vinho Verde wine samples (1,599 red and 4,898 white).
@@ -89,39 +93,40 @@ datasets:
     description: Our World in Data country-year indicators (life expectancy, GDP per capita, population)
     source: "Our World in Data grapher CSVs (life-expectancy, gdp-per-capita-worldbank, population-with-un-projections), downloaded by load_data.py at load time and not stored in this repo. Underlying sources: Riley (2005), Zijdeman et al. (2015), HMD (2025), UN WPP (2024); Eurostat, OECD, IMF and World Bank (2026)."
     licence: CC BY 4.0 (Our World in Data processed data; attribute Our World in Data and the original sources shown on each indicator page)
-    database: DATAMIND
+    database: OWID
     schema: PUBLIC
-    tables: [OWID_LIFE_EXPECTANCY, OWID_GDP_PER_CAPITA, OWID_POPULATION]
+    tables: [LIFE_EXPECTANCY, GDP_PER_CAPITA, POPULATION]
     scope: Country-year time series. Life expectancy 1543-2023, GDP per capita 1990-2025, population 1950-2100 (past estimates plus UN medium projections). Gaps are normal and different per indicator.
     notes:
-      OWID_LIFE_EXPECTANCY: One row per entity and year; life expectancy at birth in years
-      OWID_GDP_PER_CAPITA: One row per entity and year; GDP per capita in international-$ at 2021 prices; has the OWID world region
-      OWID_POPULATION: One row per entity and year; POPULATION is the estimate, POPULATION_PROJECTED is the UN medium projection (NULL before projections start, and NULL for years after the estimates end)
+      LIFE_EXPECTANCY: One row per entity and year; life expectancy at birth in years
+      GDP_PER_CAPITA: One row per entity and year; GDP per capita in international-$ at 2021 prices; has the OWID world region
+      POPULATION: One row per entity and year; POPULATION is the estimate, POPULATION_PROJECTED is the UN medium projection (NULL before projections start, and NULL for years after the estimates end)
     columns:
-      OWID_LIFE_EXPECTANCY: {ENTITY: country or region name, CODE: ISO country code, YEAR: calendar year, LIFE_EXPECTANCY: life expectancy at birth in years}
-      OWID_GDP_PER_CAPITA: {ENTITY: country or region name, CODE: ISO country code, YEAR: calendar year, GDP_PER_CAPITA: GDP per capita in international-$ (2021 prices), OWID_REGION: world region of the country (NULL for aggregates)}
-      OWID_POPULATION: {ENTITY: country or region name, CODE: ISO country code, YEAR: calendar year, POPULATION: estimated population (people), POPULATION_PROJECTED: UN medium-variant projected population (people)}
+      LIFE_EXPECTANCY: {ENTITY: country or region name, CODE: ISO country code, YEAR: calendar year, LIFE_EXPECTANCY: life expectancy at birth in years}
+      GDP_PER_CAPITA: {ENTITY: country or region name, CODE: ISO country code, YEAR: calendar year, GDP_PER_CAPITA: GDP per capita in international-$ (2021 prices), OWID_REGION: world region of the country (NULL for aggregates)}
+      POPULATION: {ENTITY: country or region name, CODE: ISO country code, YEAR: calendar year, POPULATION: estimated population (people), POPULATION_PROJECTED: UN medium-variant projected population (people)}
     joins:
-      - OWID_LIFE_EXPECTANCY.ENTITY = OWID_GDP_PER_CAPITA.ENTITY
-      - OWID_LIFE_EXPECTANCY.YEAR = OWID_GDP_PER_CAPITA.YEAR
-      - OWID_LIFE_EXPECTANCY.ENTITY = OWID_POPULATION.ENTITY
-      - OWID_LIFE_EXPECTANCY.YEAR = OWID_POPULATION.YEAR
-      - OWID_GDP_PER_CAPITA.ENTITY = OWID_POPULATION.ENTITY
-      - OWID_GDP_PER_CAPITA.YEAR = OWID_POPULATION.YEAR
+      - LIFE_EXPECTANCY.ENTITY = GDP_PER_CAPITA.ENTITY
+      - LIFE_EXPECTANCY.YEAR = GDP_PER_CAPITA.YEAR
+      - LIFE_EXPECTANCY.ENTITY = POPULATION.ENTITY
+      - LIFE_EXPECTANCY.YEAR = POPULATION.YEAR
+      - GDP_PER_CAPITA.ENTITY = POPULATION.ENTITY
+      - GDP_PER_CAPITA.YEAR = POPULATION.YEAR
     metrics:
       country_rows: the tables also hold regions and income groups (Africa, World, High-income countries ...); a row is a real country when CODE IS NOT NULL AND CODE NOT LIKE 'OWID%'. Use only country rows for country rankings and averages unless the user asks for regions or the world
+      world_and_regions: for global or world-wide figures use the row with ENTITY = 'World' (and ENTITY = the region name for a continent or income group); never average or sum country rows to get these
       join_keys: always join indicator tables on BOTH ENTITY and YEAR
       latest_value: the most recent YEAR that has a non-NULL value for that indicator, per entity
     load:
-      - {type: csv, table: OWID_LIFE_EXPECTANCY, url: "https://ourworldindata.org/grapher/life-expectancy.csv?v=1&csvType=full&useColumnShortNames=true", rename: {LIFE_EXPECTANCY_0: LIFE_EXPECTANCY}}
-      - {type: csv, table: OWID_GDP_PER_CAPITA, url: "https://ourworldindata.org/grapher/gdp-per-capita-worldbank.csv?v=1&csvType=full&useColumnShortNames=true", rename: {NY_GDP_PCAP_PP_KD: GDP_PER_CAPITA}}
-      - {type: csv, table: OWID_POPULATION, url: "https://ourworldindata.org/grapher/population-with-un-projections.csv?v=1&csvType=full&useColumnShortNames=true", rename: {POPULATION__SEX_ALL__AGE_ALL__VARIANT_ESTIMATES: POPULATION, POPULATION__SEX_ALL__AGE_ALL__VARIANT_MEDIUM__PROJECTED: POPULATION_PROJECTED}}
+      - {type: csv, table: LIFE_EXPECTANCY, url: "https://ourworldindata.org/grapher/life-expectancy.csv?v=1&csvType=full&useColumnShortNames=true", rename: {LIFE_EXPECTANCY_0: LIFE_EXPECTANCY}}
+      - {type: csv, table: GDP_PER_CAPITA, url: "https://ourworldindata.org/grapher/gdp-per-capita-worldbank.csv?v=1&csvType=full&useColumnShortNames=true", rename: {NY_GDP_PCAP_PP_KD: GDP_PER_CAPITA}}
+      - {type: csv, table: POPULATION, url: "https://ourworldindata.org/grapher/population-with-un-projections.csv?v=1&csvType=full&useColumnShortNames=true", rename: {POPULATION__SEX_ALL__AGE_ALL__VARIANT_ESTIMATES: POPULATION, POPULATION__SEX_ALL__AGE_ALL__VARIANT_MEDIUM__PROJECTED: POPULATION_PROJECTED}}
 
   - name: bank_marketing
     description: Direct marketing phone-call campaigns of a Portuguese bank (client profile and term-deposit outcome)
     source: UCI Machine Learning Repository, id 222 (Bank Marketing)
     licence: CC BY 4.0
-    database: DATAMIND
+    database: UCI
     schema: PUBLIC
     tables: [BANK_MARKETING]
     scope: 45,211 clients contacted by phone in a marketing campaign; SUBSCRIBED says whether the client took a term deposit.
@@ -141,7 +146,7 @@ datasets:
     description: Secondary-school student grades with demographic, social and school-related attributes
     source: UCI Machine Learning Repository, id 320 (Student Performance)
     licence: CC BY 4.0
-    database: DATAMIND
+    database: UCI
     schema: PUBLIC
     tables: [STUDENT_PERFORMANCE]
     scope: 649 students of two Portuguese secondary schools (Portuguese-language course); grades G1, G2 and G3 are on a 0-20 scale.
@@ -155,3 +160,76 @@ datasets:
       type: uci
       uci_id: 320
       table: STUDENT_PERFORMANCE
+
+  - name: tpcds
+    description: TPC-DS retail benchmark (store, catalog and web sales, store returns, items, customers, stores)
+    source: Snowflake SNOWFLAKE_SAMPLE_DATA schema TPCDS_SF10TCL (shared into the account; not copied into this repo)
+    licence: No open licence stated; referenced in place only
+    database: SNOWFLAKE_SAMPLE_DATA
+    schema: TPCDS_SF10TCL
+    tables: [STORE_SALES, STORE_RETURNS, CATALOG_SALES, WEB_SALES, DATE_DIM, ITEM, CUSTOMER, CUSTOMER_ADDRESS, CUSTOMER_DEMOGRAPHICS, STORE, PROMOTION, WAREHOUSE]
+    scope: Use this dataset only when the question mentions TPC-DS, stores, store/catalogue/web channels, items, product categories or store returns. Benchmark retail data with sales from 1998-01-02 to 2003-01-02 (DATE_DIM itself spans 1900-2100). STORE_SALES has 28.8 billion rows, so every query on a sales or returns table must be limited by date.
+    notes:
+      STORE_SALES: One row per item sold in a store ticket (28.8 billion rows)
+      STORE_RETURNS: One row per item returned to a store
+      CATALOG_SALES: One row per item sold through the catalogue channel
+      WEB_SALES: One row per item sold through the web channel
+      DATE_DIM: One row per calendar day, 1900-2100; join sales to it to filter by year, month or day
+      ITEM: One row per product (402,000); categories are Books, Children, Electronics, Home, Jewelry, Men, Music, Shoes, Sports, Women
+      CUSTOMER: One row per customer (65 million)
+      CUSTOMER_ADDRESS: One row per address (state in CA_STATE, two-letter code)
+      CUSTOMER_DEMOGRAPHICS: One row per demographic profile (gender, marital status, education, credit rating)
+      STORE: One row per store (1,500); S_STATE is the two-letter state code
+      PROMOTION: One row per promotion
+      WAREHOUSE: One row per warehouse
+    columns:
+      STORE_SALES: {SS_SOLD_DATE_SK: date key (joins DATE_DIM), SS_ITEM_SK: item key, SS_CUSTOMER_SK: customer key, SS_STORE_SK: store key, SS_PROMO_SK: promotion key, SS_ADDR_SK: address key, SS_CDEMO_SK: customer demographics key, SS_TICKET_NUMBER: store ticket number, SS_QUANTITY: units sold, SS_NET_PAID: amount paid after discounts and before tax, SS_NET_PROFIT: profit (net paid minus wholesale cost), SS_EXT_SALES_PRICE: sales price times quantity}
+      STORE_RETURNS: {SR_RETURNED_DATE_SK: date key of the return, SR_ITEM_SK: item key, SR_CUSTOMER_SK: customer key, SR_STORE_SK: store key, SR_TICKET_NUMBER: store ticket number of the original sale, SR_RETURN_QUANTITY: units returned, SR_RETURN_AMT: refunded amount before tax, SR_NET_LOSS: net loss from the return}
+      CATALOG_SALES: {CS_SOLD_DATE_SK: date key, CS_ITEM_SK: item key, CS_BILL_CUSTOMER_SK: billing customer key, CS_QUANTITY: units sold, CS_NET_PAID: amount paid after discounts and before tax, CS_NET_PROFIT: profit}
+      WEB_SALES: {WS_SOLD_DATE_SK: date key, WS_ITEM_SK: item key, WS_BILL_CUSTOMER_SK: billing customer key, WS_QUANTITY: units sold, WS_NET_PAID: amount paid after discounts and before tax, WS_NET_PROFIT: profit}
+      DATE_DIM: {D_DATE_SK: date key, D_DATE: calendar date, D_YEAR: year, D_MOY: month of year 1-12, D_QOY: quarter 1-4, D_DAY_NAME: weekday name}
+      ITEM: {I_ITEM_SK: item key, I_PRODUCT_NAME: product name, I_CATEGORY: category, I_CLASS: class, I_BRAND: brand, I_CURRENT_PRICE: current list price}
+      CUSTOMER: {C_CUSTOMER_SK: customer key, C_FIRST_NAME: first name, C_LAST_NAME: last name, C_BIRTH_YEAR: birth year, C_BIRTH_COUNTRY: birth country, C_CURRENT_ADDR_SK: current address key, C_CURRENT_CDEMO_SK: current demographics key}
+      CUSTOMER_ADDRESS: {CA_ADDRESS_SK: address key, CA_STATE: two-letter state code, CA_CITY: city, CA_COUNTRY: country}
+      CUSTOMER_DEMOGRAPHICS: {CD_DEMO_SK: demographics key, CD_GENDER: M or F, CD_MARITAL_STATUS: marital status code, CD_EDUCATION_STATUS: education level, CD_CREDIT_RATING: credit rating}
+      STORE: {S_STORE_SK: store key, S_STORE_NAME: store name, S_STATE: two-letter state code, S_CITY: city}
+      PROMOTION: {P_PROMO_SK: promotion key, P_PROMO_NAME: promotion name}
+      WAREHOUSE: {W_WAREHOUSE_SK: warehouse key, W_WAREHOUSE_NAME: warehouse name, W_STATE: two-letter state code}
+    joins:
+      - STORE_SALES.SS_SOLD_DATE_SK = DATE_DIM.D_DATE_SK
+      - STORE_SALES.SS_ITEM_SK = ITEM.I_ITEM_SK
+      - STORE_SALES.SS_CUSTOMER_SK = CUSTOMER.C_CUSTOMER_SK
+      - STORE_SALES.SS_STORE_SK = STORE.S_STORE_SK
+      - STORE_SALES.SS_PROMO_SK = PROMOTION.P_PROMO_SK
+      - STORE_SALES.SS_ADDR_SK = CUSTOMER_ADDRESS.CA_ADDRESS_SK
+      - STORE_SALES.SS_CDEMO_SK = CUSTOMER_DEMOGRAPHICS.CD_DEMO_SK
+      - STORE_RETURNS.SR_RETURNED_DATE_SK = DATE_DIM.D_DATE_SK
+      - STORE_RETURNS.SR_ITEM_SK = ITEM.I_ITEM_SK
+      - STORE_RETURNS.SR_CUSTOMER_SK = CUSTOMER.C_CUSTOMER_SK
+      - STORE_RETURNS.SR_STORE_SK = STORE.S_STORE_SK
+      - STORE_RETURNS.SR_ITEM_SK = STORE_SALES.SS_ITEM_SK
+      - STORE_RETURNS.SR_TICKET_NUMBER = STORE_SALES.SS_TICKET_NUMBER
+      - CATALOG_SALES.CS_SOLD_DATE_SK = DATE_DIM.D_DATE_SK
+      - CATALOG_SALES.CS_ITEM_SK = ITEM.I_ITEM_SK
+      - CATALOG_SALES.CS_BILL_CUSTOMER_SK = CUSTOMER.C_CUSTOMER_SK
+      - CATALOG_SALES.CS_PROMO_SK = PROMOTION.P_PROMO_SK
+      - CATALOG_SALES.CS_WAREHOUSE_SK = WAREHOUSE.W_WAREHOUSE_SK
+      - WEB_SALES.WS_SOLD_DATE_SK = DATE_DIM.D_DATE_SK
+      - WEB_SALES.WS_ITEM_SK = ITEM.I_ITEM_SK
+      - WEB_SALES.WS_BILL_CUSTOMER_SK = CUSTOMER.C_CUSTOMER_SK
+      - WEB_SALES.WS_PROMO_SK = PROMOTION.P_PROMO_SK
+      - WEB_SALES.WS_WAREHOUSE_SK = WAREHOUSE.W_WAREHOUSE_SK
+      - CUSTOMER.C_CURRENT_ADDR_SK = CUSTOMER_ADDRESS.CA_ADDRESS_SK
+      - CUSTOMER.C_CURRENT_CDEMO_SK = CUSTOMER_DEMOGRAPHICS.CD_DEMO_SK
+    metrics:
+      performance_rule: the sales and returns tables hold billions of rows. Always join DATE_DIM and filter D_YEAR (sales exist only for 1998 to 2003) before aggregating, and never scan a fact table without a date filter. A plain COUNT(*) of a whole table is the only exception
+      channel: STORE_SALES is the default channel; use CATALOG_SALES for the catalogue channel and WEB_SALES for the web channel only when the user names it
+      revenue: SUM of the channel's NET_PAID column (SS_NET_PAID, CS_NET_PAID or WS_NET_PAID), which is after discounts and before tax
+      profit: SUM of the channel's NET_PROFIT column (SS_NET_PROFIT, CS_NET_PROFIT or WS_NET_PROFIT)
+      units: SUM of the channel's QUANTITY column
+      returns_amount: SUM(SR_RETURN_AMT) from STORE_RETURNS joined to DATE_DIM on SR_RETURNED_DATE_SK
+      composite_join: matching a return to its sale needs both STORE_RETURNS.SR_ITEM_SK = STORE_SALES.SS_ITEM_SK and STORE_RETURNS.SR_TICKET_NUMBER = STORE_SALES.SS_TICKET_NUMBER
+    examples:
+      - question: What was the total store profit in 2000?
+        sql: SELECT SUM(SS.SS_NET_PROFIT) AS TOTAL_PROFIT FROM SNOWFLAKE_SAMPLE_DATA.TPCDS_SF10TCL.STORE_SALES AS SS JOIN SNOWFLAKE_SAMPLE_DATA.TPCDS_SF10TCL.DATE_DIM AS D ON SS.SS_SOLD_DATE_SK = D.D_DATE_SK WHERE D.D_YEAR = 2000
+        assumptions: [Store channel and calendar year 2000]

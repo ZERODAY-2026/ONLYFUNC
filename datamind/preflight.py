@@ -42,7 +42,7 @@ def check_env() -> bool:
 
 
 def check_snowflake() -> int:
-    from .catalog import missing_tables
+    from .catalog import discover_tables, missing_tables
     from .snowflake_client import connect, run_query
     try:
         conn = connect("SNOWFLAKE_READER_ROLE")
@@ -55,8 +55,12 @@ def check_snowflake() -> int:
         role, wh = run_query(conn, "SELECT CURRENT_ROLE(), CURRENT_WAREHOUSE()").rows[0]
         say("ok", f"Snowflake login (role {role}, warehouse {wh})")
         cfg = load_config()
+        discover_tables(conn, cfg)
         missing = missing_tables(conn, cfg)
         for d in cfg.datasets:
+            if d.auto:
+                say("ok", f"dataset {d.name}: {len(d.tables)} extra table(s) discovered in {d.database}.{d.schema}" + (f" ({', '.join(d.tables)})" if d.tables else ""))
+                continue
             present = [t for t in d.tables if f"{d.database}.{d.schema}.{t}" not in missing]
             if present:
                 n = run_query(conn, f"SELECT COUNT(*) FROM {d.database}.{d.schema}.{present[0]}").rows[0][0]

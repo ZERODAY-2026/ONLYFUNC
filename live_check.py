@@ -35,7 +35,7 @@ def main() -> int:
         r = ex(f"SELECT O_ORDERKEY FROM {T}.ORDERS")
         check("result cap truncates a big result (1000 rows, truncated flag)", len(r["rows"]) == 1000 and r["truncated"] is True)
 
-        r = ex("SELECT COUNT(*) AS N FROM DATAMIND.PUBLIC.WINE_QUALITY")
+        r = ex("SELECT COUNT(*) AS N FROM UCI.PUBLIC.WINE_QUALITY")
         check("second dataset readable (WINE_QUALITY 6,497 rows)", r["rows"][0]["N"] == 6497)
 
         try:
@@ -44,7 +44,7 @@ def main() -> int:
         except sf_errors.ProgrammingError as e:
             check("a bad table raises a SQL error for the caller to repair", True, f"errno {e.errno}")
 
-        for bad in ("DROP TABLE DATAMIND.PUBLIC.WINE_QUALITY", "DELETE FROM DATAMIND.PUBLIC.WINE_QUALITY"):
+        for bad in ("DROP TABLE UCI.PUBLIC.WINE_QUALITY", "DELETE FROM UCI.PUBLIC.WINE_QUALITY"):
             try:
                 ex(bad)
                 check(f"executor refuses: {bad.split()[0]}", False, "it ran!")

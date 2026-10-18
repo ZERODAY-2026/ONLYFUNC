@@ -5,7 +5,7 @@ from datamind.validator import ValidationError, validate
 
 CFG = load_config()
 T = "SNOWFLAKE_SAMPLE_DATA.TPCH_SF1"
-W = "DATAMIND.PUBLIC.WINE_QUALITY"
+W = "UCI.PUBLIC.WINE_QUALITY"
 
 
 def ok(sql, max_rows=100):
@@ -32,11 +32,11 @@ def test_cte_and_approved_join_ok():
 
 def test_aliased_cte_references_ok():
     """`FROM some_cte AS c` joins on columns of the CTE (found live: a before/after comparison of two CTEs)."""
-    D = "DATAMIND.PUBLIC"
-    sql = (f"WITH a AS (SELECT ENTITY, LIFE_EXPECTANCY FROM {D}.OWID_LIFE_EXPECTANCY WHERE YEAR = 1990), "
-           f"b AS (SELECT ENTITY, LIFE_EXPECTANCY FROM {D}.OWID_LIFE_EXPECTANCY WHERE YEAR = 2020) "
+    D = "OWID.PUBLIC"
+    sql = (f"WITH a AS (SELECT ENTITY, LIFE_EXPECTANCY FROM {D}.LIFE_EXPECTANCY WHERE YEAR = 1990), "
+           f"b AS (SELECT ENTITY, LIFE_EXPECTANCY FROM {D}.LIFE_EXPECTANCY WHERE YEAR = 2020) "
            "SELECT b2.ENTITY, b2.LIFE_EXPECTANCY - a1.LIFE_EXPECTANCY AS GAIN FROM b AS b2 JOIN a AS a1 ON b2.ENTITY = a1.ENTITY")
-    assert ok(sql).tables == [f"{D}.OWID_LIFE_EXPECTANCY".upper()]
+    assert ok(sql).tables == [f"{D}.LIFE_EXPECTANCY".upper()]
 
 
 @pytest.mark.parametrize("sql", [

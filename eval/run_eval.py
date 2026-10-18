@@ -22,7 +22,7 @@ from datamind.snowflake_client import connect, run_query
 from eval.compare import match
 
 HERE = Path(__file__).parent
-TOKENS = {"{TPCH}": "SNOWFLAKE_SAMPLE_DATA.TPCH_SF1", "{WINE}": "DATAMIND.PUBLIC.WINE_QUALITY", "{DM}": "DATAMIND.PUBLIC"}
+TOKENS = {"{TPCH}": "SNOWFLAKE_SAMPLE_DATA.TPCH_SF1", "{WINE}": "UCI.PUBLIC.WINE_QUALITY", "{UCI}": "UCI.PUBLIC", "{OWID}": "OWID.PUBLIC", "{DS}": "SNOWFLAKE_SAMPLE_DATA.TPCDS_SF10TCL"}
 REFUSED = {"unsupported", "refused"}
 log = get_logger()
 

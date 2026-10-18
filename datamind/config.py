@@ -22,7 +22,7 @@ class Dataset:
     description: str
     database: str
     schema: str
-    tables: list[str]
+    tables: list[str] | str        # a list, or the word auto (see catalog.discover_tables)
     source: str = ""
     licence: str = ""
     load: dict | list = field(default_factory=dict)  # one recipe, or a list (one per table); see load_data.py
@@ -33,6 +33,13 @@ class Dataset:
     columns: dict[str, dict[str, str]] = field(default_factory=dict)
     notes: dict[str, str] = field(default_factory=dict)
     examples: list[dict] = field(default_factory=list)
+    auto: bool = field(default=False, init=False)  # tables are discovered from Snowflake, not listed
+
+    def __post_init__(self):
+        if isinstance(self.tables, str):
+            if self.tables.strip().lower() != "auto":
+                raise ValueError(f"dataset {self.name}: tables must be a list or the word auto")
+            self.auto, self.tables = True, []
 
     def qualified(self, table: str) -> Table:
         return (self.database.upper(), self.schema.upper(), table.upper())
