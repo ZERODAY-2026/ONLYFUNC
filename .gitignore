@@ -1,8 +1,13 @@
 .env
+logs/
 .keys/
 *.p8
 *.pem
-logs/
+graphify-out/cache/
+graphify-out/20*/
+graphify-out/.graphify_*
+graphify-out/cost.json
+graphify-out/manifest.json
 .venv/
 __pycache__/
 *.pyc

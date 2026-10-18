@@ -26,8 +26,8 @@ datasets:
       PART: One row per part
       SUPPLIER: One row per supplier
       PARTSUPP: One row per part-supplier pair (available quantity and supply cost)
-      NATION: One row per nation
-      REGION: One row per region
+      NATION: One row per nation; names are stored in UPPERCASE (for example GERMANY)
+      REGION: One row per region; names are stored in UPPERCASE (AFRICA, AMERICA, ASIA, EUROPE, MIDDLE EAST)
     columns:
       CUSTOMER: {C_CUSTKEY: customer key, C_NAME: customer name, C_NATIONKEY: customer nation key, C_MKTSEGMENT: market segment}
       ORDERS: {O_ORDERKEY: order key, O_CUSTKEY: customer key, O_ORDERDATE: order date, O_TOTALPRICE: total order value, O_ORDERSTATUS: status, O_ORDERPRIORITY: priority}
@@ -84,3 +84,74 @@ datasets:
       type: uci
       uci_id: 186
       table: WINE_QUALITY
+
+  - name: owid
+    description: Our World in Data country-year indicators (life expectancy, GDP per capita, population)
+    source: "Our World in Data grapher CSVs (life-expectancy, gdp-per-capita-worldbank, population-with-un-projections), downloaded by load_data.py at load time and not stored in this repo. Underlying sources: Riley (2005), Zijdeman et al. (2015), HMD (2025), UN WPP (2024); Eurostat, OECD, IMF and World Bank (2026)."
+    licence: CC BY 4.0 (Our World in Data processed data; attribute Our World in Data and the original sources shown on each indicator page)
+    database: DATAMIND
+    schema: PUBLIC
+    tables: [OWID_LIFE_EXPECTANCY, OWID_GDP_PER_CAPITA, OWID_POPULATION]
+    scope: Country-year time series. Life expectancy 1543-2023, GDP per capita 1990-2025, population 1950-2100 (past estimates plus UN medium projections). Gaps are normal and different per indicator.
+    notes:
+      OWID_LIFE_EXPECTANCY: One row per entity and year; life expectancy at birth in years
+      OWID_GDP_PER_CAPITA: One row per entity and year; GDP per capita in international-$ at 2021 prices; has the OWID world region
+      OWID_POPULATION: One row per entity and year; POPULATION is the estimate, POPULATION_PROJECTED is the UN medium projection (NULL before projections start, and NULL for years after the estimates end)
+    columns:
+      OWID_LIFE_EXPECTANCY: {ENTITY: country or region name, CODE: ISO country code, YEAR: calendar year, LIFE_EXPECTANCY: life expectancy at birth in years}
+      OWID_GDP_PER_CAPITA: {ENTITY: country or region name, CODE: ISO country code, YEAR: calendar year, GDP_PER_CAPITA: GDP per capita in international-$ (2021 prices), OWID_REGION: world region of the country (NULL for aggregates)}
+      OWID_POPULATION: {ENTITY: country or region name, CODE: ISO country code, YEAR: calendar year, POPULATION: estimated population (people), POPULATION_PROJECTED: UN medium-variant projected population (people)}
+    joins:
+      - OWID_LIFE_EXPECTANCY.ENTITY = OWID_GDP_PER_CAPITA.ENTITY
+      - OWID_LIFE_EXPECTANCY.YEAR = OWID_GDP_PER_CAPITA.YEAR
+      - OWID_LIFE_EXPECTANCY.ENTITY = OWID_POPULATION.ENTITY
+      - OWID_LIFE_EXPECTANCY.YEAR = OWID_POPULATION.YEAR
+      - OWID_GDP_PER_CAPITA.ENTITY = OWID_POPULATION.ENTITY
+      - OWID_GDP_PER_CAPITA.YEAR = OWID_POPULATION.YEAR
+    metrics:
+      country_rows: the tables also hold regions and income groups (Africa, World, High-income countries ...); a row is a real country when CODE IS NOT NULL AND CODE NOT LIKE 'OWID%'. Use only country rows for country rankings and averages unless the user asks for regions or the world
+      join_keys: always join indicator tables on BOTH ENTITY and YEAR
+      latest_value: the most recent YEAR that has a non-NULL value for that indicator, per entity
+    load:
+      - {type: csv, table: OWID_LIFE_EXPECTANCY, url: "https://ourworldindata.org/grapher/life-expectancy.csv?v=1&csvType=full&useColumnShortNames=true", rename: {LIFE_EXPECTANCY_0: LIFE_EXPECTANCY}}
+      - {type: csv, table: OWID_GDP_PER_CAPITA, url: "https://ourworldindata.org/grapher/gdp-per-capita-worldbank.csv?v=1&csvType=full&useColumnShortNames=true", rename: {NY_GDP_PCAP_PP_KD: GDP_PER_CAPITA}}
+      - {type: csv, table: OWID_POPULATION, url: "https://ourworldindata.org/grapher/population-with-un-projections.csv?v=1&csvType=full&useColumnShortNames=true", rename: {POPULATION__SEX_ALL__AGE_ALL__VARIANT_ESTIMATES: POPULATION, POPULATION__SEX_ALL__AGE_ALL__VARIANT_MEDIUM__PROJECTED: POPULATION_PROJECTED}}
+
+  - name: bank_marketing
+    description: Direct marketing phone-call campaigns of a Portuguese bank (client profile and term-deposit outcome)
+    source: UCI Machine Learning Repository, id 222 (Bank Marketing)
+    licence: CC BY 4.0
+    database: DATAMIND
+    schema: PUBLIC
+    tables: [BANK_MARKETING]
+    scope: 45,211 clients contacted by phone in a marketing campaign; SUBSCRIBED says whether the client took a term deposit.
+    notes:
+      BANK_MARKETING: One row per client contact record
+    columns:
+      BANK_MARKETING: {AGE: client age in years, JOB: job type, MARITAL: marital status, EDUCATION: education level, HAS_CREDIT_DEFAULT: has credit in default (yes/no), BALANCE: average yearly balance in euros, HAS_HOUSING_LOAN: has a housing loan (yes/no), HAS_PERSONAL_LOAN: has a personal loan (yes/no), CONTACT: contact type (cellular/telephone/unknown), CONTACT_DAY: day of month of the last contact, CONTACT_MONTH: month of the last contact as a lowercase 3-letter name (jan..dec), CALL_DURATION_SEC: duration of the last call in seconds, CAMPAIGN: contacts during this campaign for this client, PDAYS: days since previous campaign contact (-1 means never contacted before), PREVIOUS: contacts before this campaign, POUTCOME: outcome of the previous campaign, SUBSCRIBED: subscribed to a term deposit (yes/no)}
+    metrics:
+      subscription_rate: AVG(CASE WHEN SUBSCRIBED = 'yes' THEN 1.0 ELSE 0.0 END), shown as a percentage
+    load:
+      type: uci
+      uci_id: 222
+      table: BANK_MARKETING
+      rename: {DEFAULT: HAS_CREDIT_DEFAULT, HOUSING: HAS_HOUSING_LOAN, LOAN: HAS_PERSONAL_LOAN, DAY: CONTACT_DAY, MONTH: CONTACT_MONTH, DURATION: CALL_DURATION_SEC, Y: SUBSCRIBED}
+
+  - name: student_performance
+    description: Secondary-school student grades with demographic, social and school-related attributes
+    source: UCI Machine Learning Repository, id 320 (Student Performance)
+    licence: CC BY 4.0
+    database: DATAMIND
+    schema: PUBLIC
+    tables: [STUDENT_PERFORMANCE]
+    scope: 649 students of two Portuguese secondary schools (Portuguese-language course); grades G1, G2 and G3 are on a 0-20 scale.
+    notes:
+      STUDENT_PERFORMANCE: One row per student
+    columns:
+      STUDENT_PERFORMANCE: {SCHOOL: school (GP or MS), SEX: F or M, AGE: age 15-22, ADDRESS: home address type (U urban, R rural), FAMSIZE: family size (LE3 three or fewer, GT3 more than three), PSTATUS: parents living together (T) or apart (A), MEDU: mother education 0-4, FEDU: father education 0-4, MJOB: mother job, FJOB: father job, REASON: reason for choosing the school, GUARDIAN: guardian, TRAVELTIME: travel time 1-4, STUDYTIME: weekly study time 1-4 (1 under 2 hours, 4 over 10 hours), FAILURES: past class failures, SCHOOLSUP: extra school support (yes/no), FAMSUP: family support (yes/no), PAID: extra paid classes (yes/no), ACTIVITIES: extra-curricular activities (yes/no), NURSERY: attended nursery (yes/no), HIGHER: wants higher education (yes/no), INTERNET: internet at home (yes/no), ROMANTIC: in a relationship (yes/no), FAMREL: family relationship quality 1-5, FREETIME: free time 1-5, GOOUT: going out 1-5, DALC: workday alcohol 1-5, WALC: weekend alcohol 1-5, HEALTH: health 1-5, ABSENCES: school absences, G1: first period grade 0-20, G2: second period grade 0-20, G3: final grade 0-20}
+    metrics:
+      final_grade: G3 unless the user names another period
+    load:
+      type: uci
+      uci_id: 320
+      table: STUDENT_PERFORMANCE

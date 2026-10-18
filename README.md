@@ -1,8 +1,38 @@
-# ONLYFUNC-: the Snowflake layer of DataMind
+# DataMind: talk to your data
 
-Only the Snowflake side of the project: login, running SQL, schema checks, dataset loading, key setup and the SQL setup script. No AI model and no UI. The AI layer hands this layer **validated SQL** and gets back rows, columns and a Snowflake query ID.
+Ask questions in plain language. **Gemma** (via Ollama) translates the question into SQL, a read-only validator checks it, **Snowflake** runs it on the real data, and Gemma explains only the rows that came back. Every answer shows the executed SQL, the rows and the Snowflake query ID.
 
-## The one thing to call
+```
+question -> Gemma (SQL) -> validator (SELECT only, allowlisted tables, LIMIT) -> Snowflake -> rows -> Gemma (explanation) -> UI
+```
+
+## Quick start (Windows)
+1. **Snowflake:** create a trial account (signup.snowflake.com). In Snowsight, run `setup.sql` as ACCOUNTADMIN (Run all).
+2. **Credentials:** `run.bat keygen` creates a key pair and prints one SQL block to run in Snowsight; it also sets the key path in `.env`. Set `SNOWFLAKE_ACCOUNT` and `SNOWFLAKE_USER=DM_APP` in `.env`.
+3. **Gemma:** put an Ollama API key in `.env` as `OLLAMA_API_KEY` (https://ollama.com/settings/keys), or run Ollama locally (see `.env.example`).
+4. **Run:** `run.bat`. It creates `.venv`, installs packages, loads missing datasets, checks everything and opens the app.
+
+`run.bat help` lists the commands: `check`, `ask "question"`, `load`, `live`, `smoke`, `eval`, `keygen`, `test`, `repair`.
+
+## Modules (one job each)
+| Module | Job |
+|---|---|
+| `llm.py`, `prompts.py` | Gemma calls and prompt text. No data access. |
+| `snowflake_client.py` | Login and running SQL. The only data access. |
+| `executor.py` | Snowflake executor callable for other AI layers (read-only, session retry, row cap). |
+| `catalog.py` | Live table/column names plus the meanings, joins, metrics and examples from `datasets.yaml`. |
+| `validator.py` | Read-only SQL guardrail: one SELECT, allowlisted tables, functions and joins, automatic LIMIT. |
+| `grounding.py` | Checks that numbers in the explanation really appear in the result rows. |
+| `agent.py`, `models.py` | The workflow and its result type. |
+| `config.py`, `datasets.yaml` | Which datasets exist. Add a dataset here, not in code. |
+| `preflight.py` | Readiness checks (settings, Snowflake, datasets, Gemma). |
+| `keys.py`, `ports.py`, `cli.py` | Key-pair setup, free port, ask-from-terminal. One job each. |
+| `run.bat` | Self-healing launcher. |
+| `eval/` | Live checks: `smoke` (routing) and the ground-truth evaluation. |
+| `app.py`, `load_data.py` | Streamlit UI and dataset loader. |
+| `live_check.py` | Proves the Snowflake layer works against the real account (`run.bat live`). |
+
+## Snowflake executor (for other AI layers)
 
 ```python
 from datamind.executor import make_executor
@@ -13,8 +43,6 @@ result = executor("SELECT COUNT(*) AS N FROM SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.ORDE
 executor.close()                            # or: with make_executor() as executor: ...
 ```
 
-This is exactly the shape the teammate's AI package expects: `agent.ask(question, executor)`.
-
 | Behaviour | Detail |
 |---|---|
 | Read-only | Only `SELECT` / `WITH` run. The app also logs in as the read-only role `DM_READER`. |
@@ -24,37 +52,23 @@ This is exactly the shape the teammate's AI package expects: `agent.ask(question
 | Statement timeout | 60 s per statement (`DM_STATEMENT_TIMEOUT`), so a runaway query cannot burn trial credits. |
 | Duplicate column names | Get `_2`, `_3` suffixes instead of silently overwriting each other in the row dicts. |
 
-## Quick start (Windows)
-`run.bat` is the one way to run things. It creates `.venv`, installs the pinned packages, creates `.env`, checks Snowflake and loads missing datasets.
-`run.bat check` (default) | `run.bat live` | `run.bat load` | `run.bat keygen` | `run.bat test` | `run.bat repair` | `run.bat help`
+## Adding a dataset
+Add an entry to `datasets.yaml` (database, schema, tables, optional `load:` recipe). No code changes. For better answers also add the optional catalogue: `metrics`, `joins`, `columns`, `notes` and `examples`. Config alone does not prove accuracy: a new dataset still needs its own evaluation questions.
 
-## Setup (step by step)
+## Guardrails
+Single statement only, no writes or DDL, only tables listed in `datasets.yaml`, fully qualified names, automatic `LIMIT`, and the app logs in as the read-only-by-default `DM_READER` role.
 
-1. **Snowflake account:** trial account at signup.snowflake.com. In Snowsight run `setup.sql` as ACCOUNTADMIN (Run all). It creates the warehouse `DM_WH`, database `DATAMIND`, and roles `DM_READER` (read-only) and `DM_LOADER`.
-2. **Python:** `python -m venv .venv`, activate it, `pip install -r requirements.txt`.
-3. **Credentials:** copy `.env.example` to `.env`; set `SNOWFLAKE_ACCOUNT` (from your Snowsight URL) and `SNOWFLAKE_USER`.
-   For key-pair login (recommended): `python -m datamind.keys` creates the key (kept in `.keys/`, never commit it), fills the path in `.env`, and prints one SQL block to run in Snowsight. Then set `SNOWFLAKE_USER=DM_APP`.
-4. **Check:** `python -m datamind.preflight` (exit 0 = ready, 2 = the extra dataset is not loaded yet, 1 = a problem with the lines marked `[FAIL]`).
-5. **Load the extra dataset** (UCI Wine Quality, CC BY 4.0): `python load_data.py`.
-6. **Prove it works:** `python live_check.py`, then `python -m pytest -q`.
+## Privacy note
+With Ollama cloud, the question and up to 50 result rows are sent to Ollama's servers for the explanation step. Use a local Ollama model to keep everything on your machine.
 
-## Files
+## Datasets and licences
+- Snowflake `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1`: referenced in place, not copied here.
+- UCI Wine Quality (id 186): CC BY 4.0, loaded into your own Snowflake account by `load_data.py`.
 
-| File | Job |
-|---|---|
-| `datamind/executor.py` | The callable above. |
-| `datamind/snowflake_client.py` | `connect()` (key pair, token or password) and `run_query()`. |
-| `datamind/catalog.py` | Reads live table and column names; lists configured tables that are missing. |
-| `datamind/config.py`, `datasets.yaml` | Which databases, schemas and tables exist; how to load extras. |
-| `datamind/keys.py` | Key-pair setup helper. |
-| `datamind/preflight.py` | Readiness checks. |
-| `datamind/logs.py` | Writes tracebacks to `logs/datamind.log` (users see clean messages). |
-| `load_data.py`, `setup.sql` | Dataset loader and the one-time account setup. |
-| `live_check.py`, `tests/` | Live check against the real account; offline tests with a fake connection. |
+## Credits
+The semantic catalogue idea, number-grounding check, function/join allowlists and the first seven routing cases are adapted from the team's AI-module handoff package (MIT).
 
-## Rules for this layer
-- Secrets only in `.env` and `.keys/` (both gitignored). Never paste tokens or keys into chat or commits.
-- The reader role must stay read-only; never run the app as ACCOUNTADMIN.
-- `datasets.yaml` lists the allowed tables; add datasets there, not in code. Source: Snowflake sample data (referenced in place, no open licence stated) and UCI Wine Quality (CC BY 4.0).
+## Known limitations
+Answer accuracy depends on the Gemma model. Verified so far: 85 unit tests, 9/9 live routing cases (`run.bat smoke`), and the 47-case ground-truth evaluation (`run.bat eval`).
 
-MIT licence (see `LICENSE`).
+**Evaluation (Gemma 4 31B, 2026-10-18):** the first run scored **45/47 (96%)** with no tuning (`eval/results/run1_before_fixes.md`). It exposed one real agent mistake (grouping parts by a non-unique name, fixed with a general prompt rule) and one over-specified truth case (corrected). After those fixes the rerun scored **47/47** (`eval/results/latest.md`). Treat 96% as the fair estimate: the final 100% comes after fixing what the set revealed, and the set is small. The questions are not used as prompt examples. Judges' unseen questions may behave differently. Metric definitions in `datasets.yaml` are followed literally; keep them accurate.

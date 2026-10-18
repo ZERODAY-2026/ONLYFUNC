@@ -25,7 +25,7 @@ class Dataset:
     tables: list[str]
     source: str = ""
     licence: str = ""
-    load: dict = field(default_factory=dict)
+    load: dict | list = field(default_factory=dict)  # one recipe, or a list (one per table); see load_data.py
     # Optional semantic catalogue (see datasets.yaml)
     scope: str = ""
     metrics: dict[str, str] = field(default_factory=dict)

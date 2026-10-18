@@ -4,7 +4,7 @@ chcp 65001 >nul
 set "PYTHONUTF8=1"
 set "PYTHONIOENCODING=utf-8"
 cd /d "%~dp0"
-title DataMind Snowflake layer
+title DataMind
 
 :: Colors only where the terminal supports them (Windows Terminal); plain tags everywhere else.
 set "OK=[OK]" & set "FAIL=[FAIL]" & set "WARN=[*]"
@@ -14,13 +14,13 @@ if defined WT_SESSION (
 )
 
 set "CMD=%~1"
-if not defined CMD set "CMD=check"
+if not defined CMD set "CMD=serve"
 if /i "!CMD!"=="help" goto usage
 if /i "!CMD!"=="/?" goto usage
 if /i "!CMD!"=="-h" goto usage
 
 echo.
-echo   DataMind - Snowflake layer
+echo   DataMind - talk to your data  (Gemma + Snowflake)
 echo.
 
 :: ---------------------------------------------------------------- 1. Python 3.10+
@@ -51,7 +51,7 @@ echo   !OK! .venv ready
 
 :: ---------------------------------------------------------------- 3. Dependencies (self-healing)
 echo [3/4] Dependencies
-set "PROBE=import snowflake.connector, yaml, ucimlrepo, pandas, dotenv, cryptography, pytest"
+set "PROBE=import snowflake.connector, streamlit, yaml, sqlglot, ollama, ucimlrepo, pandas, dotenv, cryptography"
 "!PY!" -c "!PROBE!" >nul 2>&1
 if errorlevel 1 (
     echo   !WARN! Missing packages, installing from requirements.txt ^(first run takes a few minutes^) ...
@@ -77,7 +77,10 @@ if not exist ".env" (
     echo   !WARN! Created .env from .env.example. Fill in your Snowflake settings ^(run.bat keygen helps^), then run again.
     exit /b 1
 )
-"!PY!" -m datamind.preflight
+set "FLAGS="
+if /i "!CMD!"=="load" set "FLAGS=--no-llm"
+if /i "!CMD!"=="live" set "FLAGS=--no-llm"
+"!PY!" -m datamind.preflight !FLAGS!
 set "PF=!errorlevel!"
 if "!PF!"=="2" (
     echo   !WARN! Loading missing datasets into Snowflake ...
@@ -86,7 +89,7 @@ if "!PF!"=="2" (
         echo   !FAIL! Loading failed. See the messages above.
         exit /b 1
     )
-    "!PY!" -m datamind.preflight
+    "!PY!" -m datamind.preflight !FLAGS!
     set "PF=!errorlevel!"
 )
 if not "!PF!"=="0" (
@@ -100,8 +103,29 @@ echo.
 if /i "!CMD!"=="check" exit /b 0
 if /i "!CMD!"=="load"  "!PY!" load_data.py & exit /b !errorlevel!
 if /i "!CMD!"=="live"  "!PY!" live_check.py & exit /b !errorlevel!
+if /i "!CMD!"=="smoke" "!PY!" -m eval.smoke & exit /b !errorlevel!
+if /i "!CMD!"=="eval"  "!PY!" -m eval.run_eval %2 %3 %4 %5 %6 %7 %8 %9 & exit /b !errorlevel!
+if /i "!CMD!"=="ask"   goto ask
+if /i "!CMD!"=="serve" goto serve
 echo   Unknown command: !CMD!
 goto usage
+
+:ask
+if "%~2"=="" (
+    echo   Usage: run.bat ask "your question"
+    exit /b 1
+)
+"!PY!" -m datamind.cli %2 %3 %4 %5 %6 %7 %8 %9
+exit /b !errorlevel!
+
+:serve
+set "PORT=8501"
+for /f %%p in ('"!PY!" -m datamind.ports 8501') do set "PORT=%%p"
+echo   DataMind is starting at http://localhost:!PORT!   ^(Ctrl+C to stop^)
+echo.
+if not defined DATAMIND_NO_BROWSER start "" /b cmd /c "ping 127.0.0.1 -n 5 >nul & start http://localhost:!PORT!"
+"!PY!" -m streamlit run app.py --server.address 127.0.0.1 --server.port !PORT! --server.headless true --browser.gatherUsageStats false
+exit /b !errorlevel!
 
 :repair
 echo   !WARN! Reinstalling all packages ...
@@ -127,14 +151,17 @@ exit /b 0
 echo.
 echo   Usage: run.bat [command]
 echo.
-echo     (none)   same as check
+echo     (none)   start the web app and open it in your browser
 echo     check    run the pre-flight checks only
-echo     live     prove the layer works against your real Snowflake account
+echo     ask      ask one question in the terminal:  run.bat ask "How many orders are there?"
 echo     load     load the extra datasets into Snowflake
+echo     live     prove the Snowflake layer works against your real account
+echo     smoke    run the live routing cases against real Gemma and Snowflake
+echo     eval     run the ground-truth evaluation ^(eval --truth-only checks the expected answers^)
 echo     keygen   create a key pair and print the SQL that registers it in Snowflake
 echo     test     run the automated tests
 echo     repair   reinstall all packages
 echo.
 echo   Self-healing: creates .venv, installs missing packages, creates .env,
-echo   and loads missing datasets automatically.
+echo   loads missing datasets, and picks a free port automatically.
 exit /b 0

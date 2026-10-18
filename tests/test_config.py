@@ -1,4 +1,5 @@
 from datamind.config import load_config
+from datamind.ports import free_port
 
 
 def test_datasets_yaml_loads():
@@ -16,4 +17,10 @@ def test_allowed_tables_are_fully_qualified_uppercase():
 def test_loadable_datasets_define_their_table():
     for d in load_config().datasets:
         if d.load:
-            assert d.load["table"].upper() in {t.upper() for t in d.tables}
+            recipes = d.load if isinstance(d.load, list) else [d.load]
+            assert {r["table"].upper() for r in recipes} == {t.upper() for t in d.tables}
+
+
+def test_free_port_returns_a_bindable_port():
+    port = free_port(8501)
+    assert 8501 <= port < 8521
