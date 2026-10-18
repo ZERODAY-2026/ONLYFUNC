@@ -1,0 +1,86 @@
+# Datasets exposed to the agent. Add a dataset here (no code changes) to query it.
+# Required per dataset: database, schema, tables.
+# Optional "semantic catalogue" that improves answer correctness (all config, no code):
+#   scope     one sentence about the data's coverage
+#   metrics   named business definitions the model must follow
+#   joins     the only join conditions the validator allows ("TABLE.COL = TABLE.COL")
+#   columns   plain-language column meanings, shown to the model next to the live column types
+#   notes     one line per table
+#   examples  few-shot question -> reply pairs (give exactly one of: sql, clarify, unsupported)
+# Catalogue ideas adapted from the teammate AI-module handoff (MIT).
+max_rows: 200
+
+datasets:
+  - name: tpch
+    description: TPC-H benchmark (orders, customers, suppliers, parts, line items)
+    source: Snowflake SNOWFLAKE_SAMPLE_DATA (shared into the account; not copied into this repo)
+    licence: No open licence stated; referenced in place only
+    database: SNOWFLAKE_SAMPLE_DATA
+    schema: TPCH_SF1
+    tables: [ORDERS, CUSTOMER, LINEITEM, NATION, REGION, SUPPLIER, PART, PARTSUPP]
+    scope: Historical benchmark orders from 1992 through 1998. Customer geography is used unless supplier geography is requested.
+    notes:
+      CUSTOMER: One row per customer
+      ORDERS: One row per order
+      LINEITEM: One row per order line
+      PART: One row per part
+      SUPPLIER: One row per supplier
+      PARTSUPP: One row per part-supplier pair (available quantity and supply cost)
+      NATION: One row per nation
+      REGION: One row per region
+    columns:
+      CUSTOMER: {C_CUSTKEY: customer key, C_NAME: customer name, C_NATIONKEY: customer nation key, C_MKTSEGMENT: market segment}
+      ORDERS: {O_ORDERKEY: order key, O_CUSTKEY: customer key, O_ORDERDATE: order date, O_TOTALPRICE: total order value, O_ORDERSTATUS: status, O_ORDERPRIORITY: priority}
+      LINEITEM: {L_ORDERKEY: order key, L_PARTKEY: part key, L_SUPPKEY: supplier key, L_QUANTITY: quantity, L_EXTENDEDPRICE: price before discount, L_DISCOUNT: discount fraction, L_SHIPDATE: ship date, L_RETURNFLAG: return flag}
+      PART: {P_PARTKEY: part key, P_NAME: part name, P_TYPE: part type}
+      SUPPLIER: {S_SUPPKEY: supplier key, S_NAME: supplier name, S_NATIONKEY: supplier nation key}
+      NATION: {N_NATIONKEY: nation key, N_NAME: nation name, N_REGIONKEY: region key}
+      REGION: {R_REGIONKEY: region key, R_NAME: region name}
+      PARTSUPP: {PS_PARTKEY: part key, PS_SUPPKEY: supplier key, PS_AVAILQTY: available quantity, PS_SUPPLYCOST: supply cost}
+    joins:
+      - ORDERS.O_CUSTKEY = CUSTOMER.C_CUSTKEY
+      - LINEITEM.L_ORDERKEY = ORDERS.O_ORDERKEY
+      - LINEITEM.L_PARTKEY = PART.P_PARTKEY
+      - LINEITEM.L_SUPPKEY = SUPPLIER.S_SUPPKEY
+      - CUSTOMER.C_NATIONKEY = NATION.N_NATIONKEY
+      - SUPPLIER.S_NATIONKEY = NATION.N_NATIONKEY
+      - NATION.N_REGIONKEY = REGION.R_REGIONKEY
+      - PARTSUPP.PS_PARTKEY = PART.P_PARTKEY
+      - PARTSUPP.PS_SUPPKEY = SUPPLIER.S_SUPPKEY
+      - LINEITEM.L_PARTKEY = PARTSUPP.PS_PARTKEY
+      - LINEITEM.L_SUPPKEY = PARTSUPP.PS_SUPPKEY
+    metrics:
+      order_count: COUNT(DISTINCT O_ORDERKEY) from ORDERS
+      order_value: SUM(O_TOTALPRICE) from ORDERS; do not join LINEITEM for this metric (it would duplicate orders)
+      revenue: SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) from LINEITEM joined to ORDERS; date filters use O_ORDERDATE unless the user asks for shipping date
+      units: SUM(L_QUANTITY) from LINEITEM
+      customer_region: join CUSTOMER -> NATION -> REGION
+      supplier_region: join SUPPLIER -> NATION -> REGION
+    examples:
+      - question: How many orders are there?
+        sql: SELECT COUNT(*) AS ORDER_COUNT FROM SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.ORDERS
+      - question: Top five customers by total order value
+        sql: SELECT C.C_NAME, SUM(O.O_TOTALPRICE) AS TOTAL_ORDER_VALUE FROM SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.CUSTOMER AS C JOIN SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.ORDERS AS O ON C.C_CUSTKEY = O.O_CUSTKEY GROUP BY C.C_NAME ORDER BY TOTAL_ORDER_VALUE DESC LIMIT 5
+      - question: Show me top sales
+        clarify: Do you mean highest revenue, most units sold, or most orders, and grouped by what?
+      - question: Show orders from 2030
+        sql: SELECT O_ORDERKEY, O_CUSTKEY, O_ORDERDATE, O_TOTALPRICE FROM SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.ORDERS WHERE O_ORDERDATE >= '2030-01-01' AND O_ORDERDATE < '2031-01-01' ORDER BY O_ORDERDATE LIMIT 100
+      - question: Delete all customers
+        unsupported: This data assistant only answers read-only analytical questions.
+
+  - name: wine_quality
+    description: Physicochemical measurements and quality scores of red and white wines
+    source: UCI Machine Learning Repository, id 186
+    licence: CC BY 4.0
+    database: DATAMIND
+    schema: PUBLIC
+    tables: [WINE_QUALITY]
+    scope: 6,497 Portuguese Vinho Verde wine samples (1,599 red and 4,898 white).
+    notes:
+      WINE_QUALITY: One row per wine sample
+    columns:
+      WINE_QUALITY: {QUALITY: sensory quality score (higher is better), COLOR: red or white, ALCOHOL: alcohol percent by volume, PH: acidity pH, DENSITY: density, RESIDUAL_SUGAR: residual sugar in g/L}
+    load:            # used by load_data.py
+      type: uci
+      uci_id: 186
+      table: WINE_QUALITY

@@ -1,0 +1,18 @@
+.env
+.keys/
+*.p8
+*.pem
+logs/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+
+# AI-assistant instructions and project-memory notes (kept locally, not published)
+/CLAUDE.md
+/AGENTS.md
+/DECISION.md
+/FLOW.md
+/PROJECT_BRAIN.md
+/.agents/
