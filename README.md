@@ -2,6 +2,8 @@
 
 Ask questions in plain language. **Gemma** (via Ollama) translates the question into SQL, a read-only validator checks it, **Snowflake** runs it on the real data, and Gemma explains only the rows that came back. Every answer shows the executed SQL, the rows and the Snowflake query ID.
 
+Five datasets are configured: Snowflake's TPC-H sample, UCI Wine Quality, UCI Bank Marketing, UCI Student Performance and three Our World in Data indicators (see Datasets and licences).
+
 ```
 question -> Gemma (SQL) -> validator (SELECT only, allowlisted tables, LIMIT) -> Snowflake -> rows -> Gemma (explanation) -> UI
 ```
@@ -29,7 +31,7 @@ question -> Gemma (SQL) -> validator (SELECT only, allowlisted tables, LIMIT) ->
 | `keys.py`, `ports.py`, `cli.py` | Key-pair setup, free port, ask-from-terminal. One job each. |
 | `run.bat` | Self-healing launcher. |
 | `eval/` | Live checks: `smoke` (routing) and the ground-truth evaluation. |
-| `app.py`, `load_data.py` | Streamlit UI and dataset loader. |
+| `app.py`, `load_data.py` | Streamlit UI and dataset loader (`uci` and `csv` recipes). |
 | `live_check.py` | Proves the Snowflake layer works against the real account (`run.bat live`). |
 
 ## Snowflake executor (for other AI layers)
@@ -53,7 +55,7 @@ executor.close()                            # or: with make_executor() as execut
 | Duplicate column names | Get `_2`, `_3` suffixes instead of silently overwriting each other in the row dicts. |
 
 ## Adding a dataset
-Add an entry to `datasets.yaml` (database, schema, tables, optional `load:` recipe). No code changes. For better answers also add the optional catalogue: `metrics`, `joins`, `columns`, `notes` and `examples`. Config alone does not prove accuracy: a new dataset still needs its own evaluation questions.
+Add an entry to `datasets.yaml` (database, schema, tables, optional `load:` recipe). No code changes. A `load:` recipe is `type: uci` (with `uci_id`) or `type: csv` (with `url`), plus `table` and an optional `rename:`; give a list of recipes for a dataset with several tables. `run.bat load` (or `python load_data.py`) loads them into your Snowflake account and overwrites existing tables. For better answers also add the optional catalogue: `metrics`, `joins`, `columns`, `notes` and `examples`. Config alone does not prove accuracy: a new dataset still needs its own evaluation questions.
 
 ## Guardrails
 Single statement only, no writes or DDL, only tables listed in `datasets.yaml`, fully qualified names, automatic `LIMIT`, and the app logs in as the read-only-by-default `DM_READER` role.
@@ -62,13 +64,28 @@ Single statement only, no writes or DDL, only tables listed in `datasets.yaml`, 
 With Ollama cloud, the question and up to 50 result rows are sent to Ollama's servers for the explanation step. Use a local Ollama model to keep everything on your machine.
 
 ## Datasets and licences
-- Snowflake `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1`: referenced in place, not copied here.
-- UCI Wine Quality (id 186): CC BY 4.0, loaded into your own Snowflake account by `load_data.py`.
+| Dataset | Tables | Source and licence |
+|---|---|---|
+| `tpch` | 8 TPC-H tables | Snowflake `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1`, referenced in place and not copied here. No open licence stated. |
+| `wine_quality` | `WINE_QUALITY` (6,497 rows) | UCI Wine Quality (id 186), CC BY 4.0. |
+| `bank_marketing` | `BANK_MARKETING` (45,211 rows) | UCI Bank Marketing (id 222), CC BY 4.0. |
+| `student_performance` | `STUDENT_PERFORMANCE` (649 rows) | UCI Student Performance (id 320), CC BY 4.0. |
+| `owid` | `OWID_LIFE_EXPECTANCY`, `OWID_GDP_PER_CAPITA`, `OWID_POPULATION` | Our World in Data (life expectancy, GDP per capita, population with UN projections), CC BY 4.0 for the processed data. Underlying sources: Riley (2005), Zijdeman et al. (2015), HMD (2025), UN WPP (2024); Eurostat, OECD, IMF and World Bank (2026). Attribute Our World in Data and the original sources. |
+
+`load_data.py` downloads the UCI and Our World in Data files into your own Snowflake account (`DATAMIND.PUBLIC`) at load time. No dataset files are stored in this repo.
+
+**Not included:** Snowflake's TPC-DS sample (`TPCDS_SF10TCL`). Its fact tables hold billions of rows (`STORE_SALES` alone has 28.8 billion), which an XSMALL trial warehouse cannot aggregate inside the 60-second statement timeout without burning credits.
 
 ## Credits
 The semantic catalogue idea, number-grounding check, function/join allowlists and the first seven routing cases are adapted from the team's AI-module handoff package (MIT).
 
 ## Known limitations
-Answer accuracy depends on the Gemma model. Verified so far: 85 unit tests, 9/9 live routing cases (`run.bat smoke`), and the 47-case ground-truth evaluation (`run.bat eval`).
+Answer accuracy depends on the Gemma model. Verified so far: 86 unit tests, 9/9 live routing cases (`run.bat smoke`), and the 66-case ground-truth evaluation (`run.bat eval`).
 
-**Evaluation (Gemma 4 31B, 2026-10-18):** the first run scored **45/47 (96%)** with no tuning (`eval/results/run1_before_fixes.md`). It exposed one real agent mistake (grouping parts by a non-unique name, fixed with a general prompt rule) and one over-specified truth case (corrected). After those fixes the rerun scored **47/47** (`eval/results/latest.md`). Treat 96% as the fair estimate: the final 100% comes after fixing what the set revealed, and the set is small. The questions are not used as prompt examples. Judges' unseen questions may behave differently. Metric definitions in `datasets.yaml` are followed literally; keep them accurate.
+**Evaluation (Gemma 4 31B, 2026-10-18):** the first run on the original TPC-H and wine questions scored **45/47 (96%)** with no tuning (`eval/results/run1_before_fixes.md`). It exposed one real agent mistake (grouping parts by a non-unique name, fixed with a general prompt rule) and one over-specified truth case (corrected). After the fixes it scored 47/47. We then added Our World in Data, Bank Marketing and Student Performance with 19 more cases; they all passed on the first run. The full 66-case set scored **66/66** (`eval/results/latest.md`).
+
+Two more things the extra datasets exposed, both fixed and kept honest here:
+- A question that compares two years with aliased CTEs ("which 5 countries gained the most life expectancy between 1990 and 2020, and what was their GDP per capita") was wrongly refused by the validator. That was a validator bug, fixed and covered by a unit test and eval case `o09`.
+- One full run failed `c05` (the model wrote `'Germany'` where TPC-H stores `GERMANY`) and then passed 3 of 3 reruns. We documented the uppercase naming in `datasets.yaml`; the next full run passed. Expect occasional model variation.
+
+Treat 96% on the first, untuned run as the fair estimate: the final 100% comes after fixing what the set revealed, and the set is small. The questions are not used as prompt examples. Judges' unseen questions may behave differently. Metric definitions in `datasets.yaml` are followed literally; keep them accurate.
